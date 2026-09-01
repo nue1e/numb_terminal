@@ -60,3 +60,4 @@ adapt them to work with your project.
 
 Theme variables are defined in `src/index.css` using Tailwind's `@theme`
 directive.
+# numb_terminal
