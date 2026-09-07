@@ -18,9 +18,67 @@ import GridBackground from './components/GridBackground';
 import '@mysten/dapp-kit/dist/index.css';
 
 const queryClient = new QueryClient();
+
+// Restored BlockVision for RPC (Localhost CORS friendly). 
+// 429s are no longer an issue since GraphQL handles the heavy lifting.
 const networks = {
   testnet: { url: 'https://sui-testnet-endpoint.blockvision.org' }
 } as any;
+
+// --- LEE'S RECOMMENDATION: GRAPHQL BLazing-Fast Data Fetcher ---
+const fetchOperativeWithGraphQL = async (ownerAddress: string, packageId: string) => {
+  const graphqlQuery = {
+    query: `
+      query GetOperativeState($owner: SuiAddress!, $structType: String!) {
+        objects(owner: $owner, filter: { type: $structType }) {
+          nodes {
+            address
+            content {
+              ... on MoveObject {
+                fields
+              }
+            }
+            dynamicFields {
+              nodes {
+                name {
+                  json
+                }
+                value {
+                  ... on MoveObject {
+                    content {
+                      ... on MoveObject {
+                        fields
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    `,
+    variables: {
+      owner: ownerAddress,
+      structType: `${packageId}::operative::Operative`,
+    },
+  };
+
+  try {
+    // Official stable Mysten GraphQL endpoint (per Lee's Discord spec)
+    const response = await fetch('https://graphql.testnet.sui.io/graphql', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(graphqlQuery),
+    });
+
+    const json = await response.json();
+    return json?.data?.objects?.nodes || [];
+  } catch (err) {
+    console.error('GraphQL sync error:', err);
+    return [];
+  }
+};
 
 function TerminalUI() {
   const account = useCurrentAccount();
@@ -33,6 +91,7 @@ function TerminalUI() {
   const [selectedOpId, setSelectedOpId] = useState<string | null>(null);
   const [equippedGear, setEquippedGear] = useState<Record<string, { objectId: string; imageUrl: string }>>({});
   const [isLoadingSlots, setIsLoadingSlots] = useState(false);
+  const [graphqlOperatives, setGraphqlOperatives] = useState<any[]>([]);
 
   const { data: ownedOperatives, refetch: refetchOperatives } = useSuiClientQuery(
     'getOwnedObjects',
@@ -53,6 +112,30 @@ function TerminalUI() {
     },
     { enabled: !!account && activeView === 'ARMORY' }
   );
+
+  useEffect(() => {
+    if (account?.address) {
+      fetchOperativeWithGraphQL(account.address, PACKAGE_ID).then((nodes) => {
+        setGraphqlOperatives(nodes);
+        if (nodes.length > 0 && !selectedOpId) {
+          setSelectedOpId(nodes[0].address);
+          
+          const gearMap: Record<string, { objectId: string; imageUrl: string }> = {};
+          const dynFields = nodes[0].dynamicFields?.nodes || [];
+          for (const field of dynFields) {
+            const fields = field.value?.content?.fields;
+            if (fields && fields.category) {
+              gearMap[fields.category] = {
+                objectId: field.value.address || '',
+                imageUrl: fields.image_url,
+              };
+            }
+          }
+          setEquippedGear(gearMap);
+        }
+      });
+    }
+  }, [account?.address]);
 
   useEffect(() => {
     if (ownedOperatives?.data?.length && !selectedOpId) {
@@ -80,6 +163,24 @@ function TerminalUI() {
     setEquippedGear({}); 
 
     try {
+      const targetNode = graphqlOperatives.find(n => n.address === opId);
+      if (targetNode) {
+        const gearMap: Record<string, { objectId: string; imageUrl: string }> = {};
+        const dynFields = targetNode.dynamicFields?.nodes || [];
+        for (const field of dynFields) {
+          const fields = field.value?.content?.fields;
+          if (fields && fields.category) {
+            gearMap[fields.category] = {
+              objectId: field.value.address || '',
+              imageUrl: fields.image_url,
+            };
+          }
+        }
+        setEquippedGear(gearMap);
+        setIsLoadingSlots(false);
+        return;
+      }
+
       const dynamicFields = await retryRpc(() => suiClient.getDynamicFields({ parentId: opId }));
       if (activeLoadRef.current !== opId) return;
 
@@ -123,6 +224,18 @@ function TerminalUI() {
     }
   }, [selectedOpId]);
 
+  const refreshTerminalState = async () => {
+    if (account?.address) {
+      const nodes = await fetchOperativeWithGraphQL(account.address, PACKAGE_ID);
+      setGraphqlOperatives(nodes);
+    }
+    if (selectedOpId) {
+      console.log("⚡ [STATE SYNC] Transaction confirmed, updating HUD...");
+      await loadEquippedTraits(selectedOpId);
+      refetchTraits();
+    }
+  };
+
   const getOperativePreviewLayers = (): string[] => {
     const activeOp = ownedOperatives?.data.find((o) => o.data?.objectId === selectedOpId);
     const baseImage = (activeOp?.data?.content as any)?.fields?.base_image || 'Textured_Vantablack_6.5.png';
@@ -154,8 +267,7 @@ function TerminalUI() {
       { transaction: tx },
       {
         onSuccess: async () => {
-          await loadEquippedTraits(selectedOpId);
-          refetchTraits();
+          await refreshTerminalState();
         },
         onError: (err) => console.error(err),
       }
@@ -175,8 +287,7 @@ function TerminalUI() {
       { transaction: tx },
       {
         onSuccess: async () => {
-          await loadEquippedTraits(selectedOpId);
-          refetchTraits();
+          await refreshTerminalState();
         },
         onError: (err) => console.error(err),
       }
@@ -211,7 +322,12 @@ function TerminalUI() {
     signAndExecuteTransaction(
       { transaction: tx },
       {
-        onSuccess: () => refetchOperatives(),
+        onSuccess: () => {
+          refetchOperatives();
+          if (account?.address) {
+            fetchOperativeWithGraphQL(account.address, PACKAGE_ID).then(setGraphqlOperatives);
+          }
+        },
         onError: (err) => console.error(err),
       }
     );
@@ -345,17 +461,20 @@ function TerminalUI() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '2.5rem', justifyContent: 'center', alignItems: 'center' }}>
             <div style={{ width: '100%', maxWidth: '400px' }}>
               <h3 style={{ margin: '0 0 1rem 0', color: '#00ff00' }}>// LIVE ON-CHAIN CONSTRUCT</h3>
-              {ownedOperatives?.data && ownedOperatives.data.length > 0 && (
+              {(ownedOperatives?.data?.length || graphqlOperatives.length > 0) && (
                 <select 
                   value={selectedOpId || ''} 
                   onChange={(e) => setSelectedOpId(e.target.value)}
                   style={{ background: 'rgba(0,0,0,0.8)', color: '#00ff00', border: '1px solid #00ff00', padding: '10px', marginBottom: '1.5rem', width: '100%', fontFamily: 'monospace', cursor: 'pointer' }}
                 >
-                  {ownedOperatives.data.map((op) => (
-                    <option key={op.data!.objectId} value={op.data!.objectId}>
-                      OPERATIVE // {op.data!.objectId.slice(0, 6)}...{op.data!.objectId.slice(-4)}
-                    </option>
-                  ))}
+                  {(graphqlOperatives.length > 0 ? graphqlOperatives : ownedOperatives?.data || []).map((op: any) => {
+                    const id = op.address || op.data?.objectId;
+                    return (
+                      <option key={id} value={id}>
+                        OPERATIVE // {id.slice(0, 6)}...{id.slice(-4)}
+                      </option>
+                    );
+                  })}
                 </select>
               )}
               
