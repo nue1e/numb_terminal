@@ -17,21 +17,15 @@ import { LayerStacker } from './LayerStacker';
 import GridBackground from './components/GridBackground';
 import '@mysten/dapp-kit/dist/index.css';
 
-// ANTI-SPAM FIX: Prevent React Query from hammering the RPC on every tab switch
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      refetchOnWindowFocus: false,
-      retry: 2,
-    },
-  },
-});
+const queryClient = new QueryClient();
 
-// CORS FIX: Using BlastAPI's public testnet node which allows all origins
+// Restored BlockVision for RPC (Localhost CORS friendly). 
+// 429s are no longer an issue since GraphQL handles the heavy lifting.
 const networks = {
-  testnet: { url: 'https://sui-testnet.public.blastapi.io' }
+  testnet: { url: 'https://sui-testnet-endpoint.blockvision.org' }
 } as any;
 
+// --- LEE'S RECOMMENDATION: GRAPHQL BLazing-Fast Data Fetcher ---
 const fetchOperativeWithGraphQL = async (ownerAddress: string, packageId: string) => {
   const graphqlQuery = {
     query: `
@@ -71,6 +65,7 @@ const fetchOperativeWithGraphQL = async (ownerAddress: string, packageId: string
   };
 
   try {
+    // Official stable Mysten GraphQL endpoint (per Lee's Discord spec)
     const response = await fetch('https://graphql.testnet.sui.io/graphql', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -115,7 +110,7 @@ function TerminalUI() {
       filter: { StructType: `${PACKAGE_ID}::operative::Trait` },
       options: { showContent: true },
     },
-    { enabled: !!account } 
+    { enabled: !!account && activeView === 'ARMORY' }
   );
 
   useEffect(() => {
