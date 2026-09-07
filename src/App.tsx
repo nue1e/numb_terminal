@@ -17,14 +17,21 @@ import { LayerStacker } from './LayerStacker';
 import GridBackground from './components/GridBackground';
 import '@mysten/dapp-kit/dist/index.css';
 
-const queryClient = new QueryClient();
+// ANTI-SPAM FIX: Prevent React Query from hammering the RPC on every tab switch
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      refetchOnWindowFocus: false,
+      retry: 2,
+    },
+  },
+});
 
-// Removed the :443 port that was causing Vercel load balancer rejections
+// CORS FIX: Using BlastAPI's public testnet node which allows all origins
 const networks = {
-  testnet: { url: 'https://fullnode.testnet.sui.io' }
+  testnet: { url: 'https://sui-testnet.public.blastapi.io' }
 } as any;
 
-// --- LEE'S RECOMMENDATION: GRAPHQL BLazing-Fast Data Fetcher ---
 const fetchOperativeWithGraphQL = async (ownerAddress: string, packageId: string) => {
   const graphqlQuery = {
     query: `
@@ -108,7 +115,6 @@ function TerminalUI() {
       filter: { StructType: `${PACKAGE_ID}::operative::Trait` },
       options: { showContent: true },
     },
-    // Removed activeView restriction so inventory syncs instantly in the background
     { enabled: !!account } 
   );
 
