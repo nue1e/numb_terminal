@@ -156,7 +156,6 @@ function TerminalUI() {
         onSuccess: async () => {
           await loadEquippedTraits(selectedOpId);
           refetchTraits();
-          alert(`Equipped to ${category.toUpperCase()}!`);
         },
         onError: (err) => console.error(err),
       }
@@ -178,7 +177,6 @@ function TerminalUI() {
         onSuccess: async () => {
           await loadEquippedTraits(selectedOpId);
           refetchTraits();
-          alert(`Unequipped ${category.toUpperCase()}! Trait returned to inventory.`);
         },
         onError: (err) => console.error(err),
       }
@@ -213,19 +211,66 @@ function TerminalUI() {
     signAndExecuteTransaction(
       { transaction: tx },
       {
-        onSuccess: () => {
-          refetchOperatives();
-          alert('Full Operative bundle minted with background and all traits attached!');
-        },
+        onSuccess: () => refetchOperatives(),
         onError: (err) => console.error(err),
       }
     );
   };
 
   return (
-    <div style={{ position: 'relative', width: '100%', minHeight: '100vh', backgroundColor: '#0a0a0a', color: '#ffffff', fontFamily: 'monospace', boxSizing: 'border-box', overflowX: 'hidden' }}>
+    <div style={{ position: 'relative', width: '100%', minHeight: '100vh', backgroundColor: '#050505', color: '#ffffff', fontFamily: 'monospace', boxSizing: 'border-box', overflowX: 'hidden' }}>
       
-      {/* FIXED FULL-SCREEN 3D GRID BACKGROUND */}
+      {/* UI CSS OVERRIDES */}
+      <style>{`
+        .hud-frame {
+          position: relative;
+          background: rgba(10, 10, 10, 0.6);
+          backdrop-filter: blur(8px);
+          border: 1px solid rgba(0, 255, 0, 0.15);
+          padding: 8px;
+        }
+        .hud-frame::before, .hud-frame::after, .hud-corner-bottom::before, .hud-corner-bottom::after {
+          content: '';
+          position: absolute;
+          width: 20px;
+          height: 20px;
+          border-color: #00ff00;
+          border-style: solid;
+        }
+        .hud-frame::before { top: -1px; left: -1px; border-width: 2px 0 0 2px; }
+        .hud-frame::after { top: -1px; right: -1px; border-width: 2px 2px 0 0; }
+        .hud-corner-bottom::before { bottom: -1px; left: -1px; border-width: 0 0 2px 2px; }
+        .hud-corner-bottom::after { bottom: -1px; right: -1px; border-width: 0 2px 2px 0; }
+
+        .neon-wallet-override button {
+          background-color: rgba(10, 10, 10, 0.8) !important;
+          border: 1px solid #00ff00 !important;
+          color: #00ff00 !important;
+          font-family: monospace !important;
+          border-radius: 0 !important;
+          box-shadow: 0 0 8px rgba(0, 255, 0, 0.15) !important;
+          transition: all 0.2s ease !important;
+        }
+        .neon-wallet-override button:hover {
+          background-color: rgba(0, 255, 0, 0.1) !important;
+          box-shadow: 0 0 15px rgba(0, 255, 0, 0.4) !important;
+        }
+
+        .crt-overlay {
+          position: fixed;
+          top: 0; left: 0; width: 100vw; height: 100vh;
+          background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+          background-size: 100% 3px, 3px 100%;
+          z-index: 9999;
+          pointer-events: none;
+          opacity: 0.4;
+        }
+      `}</style>
+
+      {/* CRT SCANLINE OVERLAY */}
+      <div className="crt-overlay" />
+
+      {/* 3D BACKGROUND */}
       <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', zIndex: 0, pointerEvents: 'none' }}>
         <Canvas camera={{ position: [0, 0, 8], fov: 50 }} style={{ width: '100%', height: '100%' }}>
           <ambientLight intensity={1} />
@@ -235,24 +280,25 @@ function TerminalUI() {
 
       {/* TERMINAL UI CONTAINER */}
       <div style={{ padding: '1.5rem', position: 'relative', zIndex: 1, maxWidth: '1200px', margin: '0 auto' }}>
-        <header style={{ display: 'flex', flexDirection: 'column', gap: '1rem', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2.5rem', borderBottom: '1px solid #222', paddingBottom: '1rem' }}>
+        <header style={{ display: 'flex', flexDirection: 'column', gap: '1rem', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2.5rem', borderBottom: '1px solid rgba(0, 255, 0, 0.3)', paddingBottom: '1rem' }}>
           <div style={{ width: '100%', display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
-            <h1 style={{ margin: 0, fontSize: '1.35rem', letterSpacing: '2px', color: '#ffffff' }}>NUMB_POLYS // TERMINAL</h1>
+            <h1 style={{ margin: 0, fontSize: '1.4rem', letterSpacing: '2px', color: '#00ff00', textShadow: '0 0 10px rgba(0,255,0,0.3)' }}>NUMB_POLYS // TERMINAL</h1>
+            
             <div style={{ display: 'flex', gap: '1rem' }}>
               <button 
                 onClick={() => setActiveView('GENERATOR')} 
-                style={{ background: activeView === 'GENERATOR' ? '#ffffff' : '#111', color: activeView === 'GENERATOR' ? '#000000' : '#ffffff', padding: '6px 16px', border: '1px solid #ffffff', cursor: 'pointer', fontFamily: 'monospace', fontWeight: 'bold' }}>
-                GENERATOR
+                style={{ background: activeView === 'GENERATOR' ? '#00ff00' : 'transparent', color: activeView === 'GENERATOR' ? '#000' : '#00ff00', padding: '6px 16px', border: '1px solid #00ff00', cursor: 'pointer', fontFamily: 'monospace', fontWeight: 'bold' }}>
+                [ GENERATOR ]
               </button>
               <button 
                 onClick={() => setActiveView('ARMORY')} 
-                style={{ background: activeView === 'ARMORY' ? '#ffffff' : '#111', color: activeView === 'ARMORY' ? '#000000' : '#ffffff', padding: '6px 16px', border: '1px solid #ffffff', cursor: 'pointer', fontFamily: 'monospace', fontWeight: 'bold' }}>
-                THE ARMORY
+                style={{ background: activeView === 'ARMORY' ? '#00ff00' : 'transparent', color: activeView === 'ARMORY' ? '#000' : '#00ff00', padding: '6px 16px', border: '1px solid #00ff00', cursor: 'pointer', fontFamily: 'monospace', fontWeight: 'bold' }}>
+                [ THE ARMORY ]
               </button>
             </div>
-          </div>
-          <div style={{ width: '100%', display: 'flex', justifyContent: 'flex-end' }}>
-            <div style={{ border: '1px solid #333', background: '#111', borderRadius: '4px', overflow: 'hidden' }}>
+            
+            {/* STYLED WALLET BUTTON */}
+            <div className="neon-wallet-override">
               <ConnectButton />
             </div>
           </div>
@@ -260,45 +306,50 @@ function TerminalUI() {
 
         {activeView === 'GENERATOR' ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', justifyContent: 'center', alignItems: 'center' }}>
-            <div style={{ width: '100%', maxWidth: '400px', display: 'flex', justifyContent: 'center' }}><LayerStacker layers={activeTraits} /></div>
+            {/* TACTICAL HUD FRAME */}
+            <div className="hud-frame" style={{ width: '100%', maxWidth: '400px', display: 'flex', justifyContent: 'center' }}>
+              <div className="hud-corner-bottom" />
+              <LayerStacker layers={activeTraits} />
+            </div>
+
             <div style={{ width: '100%', maxWidth: '500px' }}>
-              <div style={{ background: '#111', border: '1px solid #222', padding: '1.5rem', borderRadius: '4px', marginBottom: '1.5rem' }}>
-                <h3 style={{ margin: '0 0 1rem 0', color: '#ffffff', fontSize: '1rem', borderBottom: '1px solid #333', paddingBottom: '0.5rem' }}>ACTIVE TRAIT MATRIX</h3>
+              <div style={{ background: 'rgba(5,5,5,0.8)', border: '1px solid #222', padding: '1.5rem', marginBottom: '1.5rem', backdropFilter: 'blur(4px)' }}>
+                <h3 style={{ margin: '0 0 1rem 0', color: '#00ff00', fontSize: '1rem', borderBottom: '1px dashed #333', paddingBottom: '0.5rem' }}>// ACTIVE TRAIT MATRIX</h3>
                 <ul style={{ listStyle: 'none', padding: 0, margin: 0, fontSize: '0.85rem', color: '#ccc', lineHeight: '1.8' }}>
                   {activeTraits.map((t, idx) => {
                     const [cat, file] = t.split('/');
                     return (
-                      <li key={idx} style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', wordBreak: 'break-all' }}>
-                        <span style={{ color: '#ffffff', flexShrink: 0 }}>{cat.toUpperCase()}:</span>
-                        <span style={{ textAlign: 'right', color: '#aaa' }}>{file.replace('.png', '')}</span>
+                      <li key={idx} style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem' }}>
+                        <span style={{ color: '#fff' }}>{cat.toUpperCase()}:</span>
+                        <span style={{ textAlign: 'right', color: '#00ff00' }}>{file.replace('.png', '')}</span>
                       </li>
                     );
                   })}
                 </ul>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-  <button onClick={handleReroll} style={{ padding: '12px', background: '#151515', color: '#ffffff', border: '1px solid #444', cursor: 'pointer', fontFamily: 'monospace', fontWeight: 'bold', width: '100%' }}>
-    ⟳ REROLL TRAITS
-  </button>
-  <button 
-    onClick={mintOperative} 
-    disabled={!account} 
-    style={{ padding: '14px', background: account ? '#ffffff' : '#222', color: account ? '#000000' : '#666', border: 'none', cursor: account ? 'pointer' : 'not-allowed', fontFamily: 'monospace', fontWeight: 'bold', width: '100%' }}
-  >
-    {account ? '⚡ MINT BUNDLE' : '⚡ MINT (CONNECT WALLET FIRST)'}
-  </button>
-</div>
+                <button onClick={handleReroll} style={{ padding: '12px', background: 'transparent', color: '#fff', border: '1px solid #444', cursor: 'pointer', fontFamily: 'monospace', fontWeight: 'bold' }}>
+                  ⟳ INITIATE RE-ROLL
+                </button>
+                <button 
+                  onClick={mintOperative} 
+                  disabled={!account} 
+                  style={{ padding: '14px', background: account ? '#00ff00' : '#111', color: account ? '#000' : '#444', border: account ? '1px solid #00ff00' : '1px solid #222', cursor: account ? 'pointer' : 'not-allowed', fontFamily: 'monospace', fontWeight: 'bold' }}
+                >
+                  {account ? '⚡ DEPLOY CONSTRUCT (MINT)' : '⚡ CONNECT TERMINAL WALLET'}
+                </button>
+              </div>
             </div>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '2.5rem', justifyContent: 'center', alignItems: 'center' }}>
             <div style={{ width: '100%', maxWidth: '400px' }}>
-              <h3 style={{ margin: '0 0 1rem 0', color: '#ffffff' }}>LIVE ON-CHAIN CONSTRUCT</h3>
+              <h3 style={{ margin: '0 0 1rem 0', color: '#00ff00' }}>// LIVE ON-CHAIN CONSTRUCT</h3>
               {ownedOperatives?.data && ownedOperatives.data.length > 0 && (
                 <select 
                   value={selectedOpId || ''} 
                   onChange={(e) => setSelectedOpId(e.target.value)}
-                  style={{ background: '#111', color: '#ffffff', border: '1px solid #333', padding: '8px', marginBottom: '1rem', width: '100%', fontFamily: 'monospace', cursor: 'pointer', textOverflow: 'ellipsis' }}
+                  style={{ background: 'rgba(0,0,0,0.8)', color: '#00ff00', border: '1px solid #00ff00', padding: '10px', marginBottom: '1.5rem', width: '100%', fontFamily: 'monospace', cursor: 'pointer' }}
                 >
                   {ownedOperatives.data.map((op) => (
                     <option key={op.data!.objectId} value={op.data!.objectId}>
@@ -307,38 +358,39 @@ function TerminalUI() {
                   ))}
                 </select>
               )}
+              
               {selectedOpId ? (
-                <div style={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
+                <div className="hud-frame" style={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
+                  <div className="hud-corner-bottom" />
                   <LayerStacker layers={getOperativePreviewLayers()} />
                 </div>
               ) : (
-                <div style={{ width: '100%', maxWidth: '380px', height: '380px', border: '1px dashed #333', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#777', margin: '0 auto' }}>
-                  NO OPERATIVE SELECTED
+                <div style={{ width: '100%', maxWidth: '380px', height: '380px', border: '1px dashed #00ff00', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#00ff00', margin: '0 auto', background: 'rgba(0,255,0,0.05)' }}>
+                  AWAITING CONSTRUCT DATA...
                 </div>
               )}
             </div>
 
             <div style={{ width: '100%', maxWidth: '550px' }}>
-              <div style={{ background: '#111', border: '1px solid #222', padding: '1.5rem', borderRadius: '4px', marginBottom: '1.5rem' }}>
-                <h3 style={{ margin: '0 0 1rem 0', color: '#ffffff', borderBottom: '1px solid #333', paddingBottom: '0.5rem' }}>
-                  EQUIPMENT SLOTS {isLoadingSlots && <span style={{ fontSize: '0.75rem', color: '#aaa' }}>(SYNCING...)</span>}
+              <div style={{ background: 'rgba(5,5,5,0.8)', border: '1px solid #222', padding: '1.5rem', marginBottom: '1.5rem', backdropFilter: 'blur(4px)' }}>
+                <h3 style={{ margin: '0 0 1rem 0', color: '#00ff00', borderBottom: '1px dashed #333', paddingBottom: '0.5rem' }}>
+                  // EQUIPMENT SLOTS {isLoadingSlots && <span style={{ color: '#fff' }}>(SYNCING...)</span>}
                 </h3>
-
                 {LAYER_ORDER.filter(s => s !== 'base body').map((slot) => {
                   const isEquipped = !!equippedGear[slot];
                   return (
-                    <div key={slot} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #1a1a1a', gap: '1rem' }}>
+                    <div key={slot} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid #111' }}>
                       <div style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        <span style={{ color: isEquipped ? '#ffffff' : '#666', fontWeight: 'bold' }}>{slot.toUpperCase()}: </span>
-                        <span style={{ color: isEquipped ? '#ddd' : '#555', fontSize: '0.85rem' }}>
+                        <span style={{ color: isEquipped ? '#fff' : '#444' }}>[{slot.toUpperCase()}] </span>
+                        <span style={{ color: isEquipped ? '#00ff00' : '#333', fontSize: '0.85rem' }}>
                           {isEquipped ? equippedGear[slot].imageUrl.replace('.png', '') : 'EMPTY'}
                         </span>
                       </div>
                       {isEquipped && (
                         <button 
                           onClick={() => handleUnequip(slot)}
-                          style={{ background: '#300', color: '#ff6666', border: '1px solid #ff6666', padding: '6px 10px', cursor: 'pointer', fontFamily: 'monospace', fontSize: '0.75rem', flexShrink: 0 }}>
-                          UNEQUIP
+                          style={{ background: 'transparent', color: '#ff3333', border: '1px solid #ff3333', padding: '4px 8px', cursor: 'pointer', fontFamily: 'monospace', fontSize: '0.75rem' }}>
+                          [ UNEQUIP ]
                         </button>
                       )}
                     </div>
@@ -346,12 +398,12 @@ function TerminalUI() {
                 })}
               </div>
 
-              <div style={{ background: '#111', border: '1px solid #222', padding: '1.5rem', borderRadius: '4px' }}>
-                <h3 style={{ margin: '0 0 1rem 0', color: '#ffffff', borderBottom: '1px solid #333', paddingBottom: '0.5rem' }}>
-                  INVENTORY GEAR
+              <div style={{ background: 'rgba(5,5,5,0.8)', border: '1px solid #222', padding: '1.5rem', backdropFilter: 'blur(4px)' }}>
+                <h3 style={{ margin: '0 0 1rem 0', color: '#00ff00', borderBottom: '1px dashed #333', paddingBottom: '0.5rem' }}>
+                  // DECOUPLED INVENTORY
                 </h3>
                 {!looseTraits?.data?.length ? (
-                  <p style={{ color: '#777', fontSize: '0.85rem' }}>No loose traits detected in wallet.</p>
+                  <p style={{ color: '#555', fontSize: '0.85rem' }}>No standalone objects detected.</p>
                 ) : (
                   looseTraits.data.map((item, idx) => {
                     const fields = (item.data?.content as any)?.fields;
@@ -359,26 +411,25 @@ function TerminalUI() {
                     const isSlotOccupied = !!equippedGear[cat];
 
                     return (
-                      <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #1a1a1a', gap: '1rem' }}>
+                      <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid #111' }}>
                         <div style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          <span style={{ color: '#ffffff' }}>[{cat?.toUpperCase()}]</span>{' '}
-                          <span style={{ color: '#ccc', fontSize: '0.85rem' }}>{fields?.image_url?.replace('.png', '')}</span>
+                          <span style={{ color: '#fff' }}>[{cat?.toUpperCase()}]</span>{' '}
+                          <span style={{ color: '#00ff00', fontSize: '0.85rem' }}>{fields?.image_url?.replace('.png', '')}</span>
                         </div>
                         <button
                           onClick={() => handleEquip(item.data!.objectId, cat)}
                           disabled={isSlotOccupied}
                           style={{
-                            background: isSlotOccupied ? '#222' : '#ffffff',
-                            color: isSlotOccupied ? '#666' : '#000000',
-                            border: isSlotOccupied ? '1px solid #333' : '1px solid #ffffff',
-                            padding: '6px 12px',
+                            background: isSlotOccupied ? 'transparent' : '#00ff00',
+                            color: isSlotOccupied ? '#444' : '#000',
+                            border: isSlotOccupied ? '1px dashed #333' : '1px solid #00ff00',
+                            padding: '4px 8px',
                             cursor: isSlotOccupied ? 'not-allowed' : 'pointer',
                             fontFamily: 'monospace',
-                            fontSize: '0.75rem',
-                            flexShrink: 0,
+                            fontSize: '0.75rem'
                           }}
                         >
-                          {isSlotOccupied ? 'SLOT BUSY' : 'EQUIP'}
+                          {isSlotOccupied ? 'SLOT BUSY' : '[ EQUIP ]'}
                         </button>
                       </div>
                     );
