@@ -17,15 +17,23 @@ import { LayerStacker } from './LayerStacker';
 import GridBackground from './components/GridBackground';
 import '@mysten/dapp-kit/dist/index.css';
 
-const queryClient = new QueryClient();
+// ANTI-SPAM FIX: Throttles background RPC calls to stop BlockVision 429 errors
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      refetchOnWindowFocus: false,
+      staleTime: 30000, 
+      retry: 1,
+    },
+  },
+});
 
-// Restored BlockVision for RPC (Localhost CORS friendly). 
-// 429s are no longer an issue since GraphQL handles the heavy lifting.
+// Working CORS-friendly RPC
 const networks = {
   testnet: { url: 'https://sui-testnet-endpoint.blockvision.org' }
 } as any;
 
-// --- LEE'S RECOMMENDATION: GRAPHQL BLazing-Fast Data Fetcher ---
+// --- GRAPHQL DATA FETCHER ---
 const fetchOperativeWithGraphQL = async (ownerAddress: string, packageId: string) => {
   const graphqlQuery = {
     query: `
@@ -65,7 +73,6 @@ const fetchOperativeWithGraphQL = async (ownerAddress: string, packageId: string
   };
 
   try {
-    // Official stable Mysten GraphQL endpoint (per Lee's Discord spec)
     const response = await fetch('https://graphql.testnet.sui.io/graphql', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -110,7 +117,7 @@ function TerminalUI() {
       filter: { StructType: `${PACKAGE_ID}::operative::Trait` },
       options: { showContent: true },
     },
-    { enabled: !!account && activeView === 'ARMORY' }
+    { enabled: !!account }
   );
 
   useEffect(() => {
