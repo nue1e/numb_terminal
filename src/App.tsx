@@ -19,10 +19,9 @@ import '@mysten/dapp-kit/dist/index.css';
 
 const queryClient = new QueryClient();
 
-// Restored BlockVision for RPC (Localhost CORS friendly). 
-// 429s are no longer an issue since GraphQL handles the heavy lifting.
+// Swapped to official Mysten Labs testnet endpoint for Vercel deployment
 const networks = {
-  testnet: { url: 'https://sui-testnet-endpoint.blockvision.org' }
+  testnet: { url: 'https://fullnode.testnet.sui.io:443' }
 } as any;
 
 // --- LEE'S RECOMMENDATION: GRAPHQL BLazing-Fast Data Fetcher ---
