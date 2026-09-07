@@ -19,9 +19,9 @@ import '@mysten/dapp-kit/dist/index.css';
 
 const queryClient = new QueryClient();
 
-// Swapped to official Mysten Labs testnet endpoint for Vercel deployment
+// Removed the :443 port that was causing Vercel load balancer rejections
 const networks = {
-  testnet: { url: 'https://fullnode.testnet.sui.io:443' }
+  testnet: { url: 'https://fullnode.testnet.sui.io' }
 } as any;
 
 // --- LEE'S RECOMMENDATION: GRAPHQL BLazing-Fast Data Fetcher ---
@@ -64,7 +64,6 @@ const fetchOperativeWithGraphQL = async (ownerAddress: string, packageId: string
   };
 
   try {
-    // Official stable Mysten GraphQL endpoint (per Lee's Discord spec)
     const response = await fetch('https://graphql.testnet.sui.io/graphql', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -109,7 +108,8 @@ function TerminalUI() {
       filter: { StructType: `${PACKAGE_ID}::operative::Trait` },
       options: { showContent: true },
     },
-    { enabled: !!account && activeView === 'ARMORY' }
+    // Removed activeView restriction so inventory syncs instantly in the background
+    { enabled: !!account } 
   );
 
   useEffect(() => {
