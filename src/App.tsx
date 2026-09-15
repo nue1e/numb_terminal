@@ -17,75 +17,22 @@ import { LayerStacker } from './LayerStacker';
 import GridBackground from './components/GridBackground';
 import '@mysten/dapp-kit/dist/index.css';
 
-// ANTI-SPAM FIX: Throttles background RPC calls to stop BlockVision 429 errors
+// ANTI-SPAM FIX: Instructs React Query to silently retry if it ever hits a 429
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       refetchOnWindowFocus: false,
       staleTime: 30000, 
-      retry: 1,
+      retry: 4,
+      retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 10000),
     },
   },
 });
 
-// Working CORS-friendly RPC
+// THE ONLY RELIABLE LOCALHOST RPC
 const networks = {
   testnet: { url: 'https://sui-testnet-endpoint.blockvision.org' }
 } as any;
-
-// --- GRAPHQL DATA FETCHER ---
-const fetchOperativeWithGraphQL = async (ownerAddress: string, packageId: string) => {
-  const graphqlQuery = {
-    query: `
-      query GetOperativeState($owner: SuiAddress!, $structType: String!) {
-        objects(owner: $owner, filter: { type: $structType }) {
-          nodes {
-            address
-            content {
-              ... on MoveObject {
-                fields
-              }
-            }
-            dynamicFields {
-              nodes {
-                name {
-                  json
-                }
-                value {
-                  ... on MoveObject {
-                    content {
-                      ... on MoveObject {
-                        fields
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    `,
-    variables: {
-      owner: ownerAddress,
-      structType: `${packageId}::operative::Operative`,
-    },
-  };
-
-  try {
-    const response = await fetch('https://graphql.testnet.sui.io/graphql', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(graphqlQuery),
-    });
-
-    const json = await response.json();
-    return json?.data?.objects?.nodes || [];
-  } catch (err) {
-    console.error('GraphQL sync error:', err);
-    return [];
-  }
-};
 
 function TerminalUI() {
   const account = useCurrentAccount();
@@ -98,8 +45,16 @@ function TerminalUI() {
   const [selectedOpId, setSelectedOpId] = useState<string | null>(null);
   const [equippedGear, setEquippedGear] = useState<Record<string, { objectId: string; imageUrl: string }>>({});
   const [isLoadingSlots, setIsLoadingSlots] = useState(false);
-  const [graphqlOperatives, setGraphqlOperatives] = useState<any[]>([]);
 
+  const [isProcessingTx, setIsProcessingTx] = useState(false);
+  const [txMessage, setTxMessage] = useState<string | null>(null);
+
+  const displayTxMessage = (msg: string) => {
+    setTxMessage(msg);
+    setTimeout(() => setTxMessage(null), 6000);
+  };
+
+  // 1. Fetch Operatives
   const { data: ownedOperatives, refetch: refetchOperatives } = useSuiClientQuery(
     'getOwnedObjects',
     {
@@ -110,6 +65,7 @@ function TerminalUI() {
     { enabled: !!account }
   );
 
+  // 2. Fetch Traits (Only when Armory is active to save requests)
   const { data: looseTraits, refetch: refetchTraits } = useSuiClientQuery(
     'getOwnedObjects',
     {
@@ -117,33 +73,10 @@ function TerminalUI() {
       filter: { StructType: `${PACKAGE_ID}::operative::Trait` },
       options: { showContent: true },
     },
-    { enabled: !!account }
+    { enabled: !!account && activeView === 'ARMORY' }
   );
 
-  useEffect(() => {
-    if (account?.address) {
-      fetchOperativeWithGraphQL(account.address, PACKAGE_ID).then((nodes) => {
-        setGraphqlOperatives(nodes);
-        if (nodes.length > 0 && !selectedOpId) {
-          setSelectedOpId(nodes[0].address);
-          
-          const gearMap: Record<string, { objectId: string; imageUrl: string }> = {};
-          const dynFields = nodes[0].dynamicFields?.nodes || [];
-          for (const field of dynFields) {
-            const fields = field.value?.content?.fields;
-            if (fields && fields.category) {
-              gearMap[fields.category] = {
-                objectId: field.value.address || '',
-                imageUrl: fields.image_url,
-              };
-            }
-          }
-          setEquippedGear(gearMap);
-        }
-      });
-    }
-  }, [account?.address]);
-
+  // Auto-select first operative on load
   useEffect(() => {
     if (ownedOperatives?.data?.length && !selectedOpId) {
       setSelectedOpId(ownedOperatives.data[0].data?.objectId || null);
@@ -152,42 +85,29 @@ function TerminalUI() {
 
   const activeLoadRef = React.useRef<string | null>(null);
 
-  const retryRpc = async <T,>(fn: () => Promise<T>, retries = 3, delay = 1000): Promise<T> => {
+  // Custom retry logic for manual RPC calls
+  const retryRpc = async <T,>(fn: () => Promise<T>, retries = 5, delay = 1500): Promise<T> => {
     try {
       return await fn();
     } catch (err: any) {
       if (retries > 0 && (err?.status === 429 || err?.message?.includes('429') || err?.toString().includes('429'))) {
         await new Promise((resolve) => setTimeout(resolve, delay));
-        return retryRpc(fn, retries - 1, delay * 2);
+        return retryRpc(fn, retries - 1, delay * 1.5);
       }
       throw err;
     }
   };
 
+  // 3. Fetch Equipped Gear
   const loadEquippedTraits = async (opId: string) => {
     activeLoadRef.current = opId;
     setIsLoadingSlots(true);
     setEquippedGear({}); 
 
     try {
-      const targetNode = graphqlOperatives.find(n => n.address === opId);
-      if (targetNode) {
-        const gearMap: Record<string, { objectId: string; imageUrl: string }> = {};
-        const dynFields = targetNode.dynamicFields?.nodes || [];
-        for (const field of dynFields) {
-          const fields = field.value?.content?.fields;
-          if (fields && fields.category) {
-            gearMap[fields.category] = {
-              objectId: field.value.address || '',
-              imageUrl: fields.image_url,
-            };
-          }
-        }
-        setEquippedGear(gearMap);
-        setIsLoadingSlots(false);
-        return;
-      }
-
+      // ANTI-BURST DELAY: Wait 1 second to let initial wallet queries clear BlockVision
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
       const dynamicFields = await retryRpc(() => suiClient.getDynamicFields({ parentId: opId }));
       if (activeLoadRef.current !== opId) return;
 
@@ -195,6 +115,10 @@ function TerminalUI() {
 
       if (dynamicFields.data.length > 0) {
         const traitIds = dynamicFields.data.map(field => field.objectId);
+        
+        // ANTI-BURST DELAY: Wait 500ms before fetching the actual objects
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
         const childObjects = await retryRpc(() => suiClient.multiGetObjects({
           ids: traitIds,
           options: { showContent: true }
@@ -225,22 +149,29 @@ function TerminalUI() {
     }
   };
 
+  // Fire gear fetch when operative changes
   useEffect(() => {
     if (selectedOpId) {
       loadEquippedTraits(selectedOpId);
     }
   }, [selectedOpId]);
 
+  // THE ULTIMATE FIX: Mechanical Staggering
+  // This physically forces the app to pause between requests so it never exceeds BlockVision's limit
   const refreshTerminalState = async () => {
-    if (account?.address) {
-      const nodes = await fetchOperativeWithGraphQL(account.address, PACKAGE_ID);
-      setGraphqlOperatives(nodes);
-    }
+    console.log("⚡ [STATE SYNC] Transaction confirmed, updating HUD sequentially...");
+    
     if (selectedOpId) {
-      console.log("⚡ [STATE SYNC] Transaction confirmed, updating HUD...");
       await loadEquippedTraits(selectedOpId);
-      refetchTraits();
     }
+    
+    // Strict 1.5 second pause
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    await refetchTraits();
+    
+    // Strict 1.5 second pause
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    await refetchOperatives();
   };
 
   const getOperativePreviewLayers = (): string[] => {
@@ -258,12 +189,15 @@ function TerminalUI() {
   };
 
   const handleEquip = (traitId: string, category: string) => {
-    if (!selectedOpId) return;
+    if (!selectedOpId || isProcessingTx) return;
     if (equippedGear[category]) {
-      alert(`Slot [${category.toUpperCase()}] is already occupied. Unequip the current item first.`);
+      displayTxMessage(`[ ERROR: SLOT ${category.toUpperCase()} IS ALREADY OCCUPIED ]`);
       return;
     }
 
+    setIsProcessingTx(true);
+    displayTxMessage(`[ PROCESSING EQUIP TRANSACTION... SIGN IN WALLET ]`);
+    
     const tx = new Transaction();
     tx.moveCall({
       target: `${PACKAGE_ID}::operative::equip_trait`,
@@ -274,15 +208,25 @@ function TerminalUI() {
       { transaction: tx },
       {
         onSuccess: async () => {
+          displayTxMessage(`[ SUCCESS: GEAR EQUIPPED ]`);
+          await new Promise(resolve => setTimeout(resolve, 3000)); // Wait for blockchain finality
           await refreshTerminalState();
+          setIsProcessingTx(false);
         },
-        onError: (err) => console.error(err),
+        onError: (err) => {
+          console.error(err);
+          displayTxMessage(`[ ERROR: TRANSACTION REJECTED OR FAILED ]`);
+          setIsProcessingTx(false);
+        },
       }
     );
   };
 
   const handleUnequip = (category: string) => {
-    if (!selectedOpId) return;
+    if (!selectedOpId || isProcessingTx) return;
+
+    setIsProcessingTx(true);
+    displayTxMessage(`[ PROCESSING UNEQUIP TRANSACTION... SIGN IN WALLET ]`);
 
     const tx = new Transaction();
     tx.moveCall({
@@ -294,9 +238,16 @@ function TerminalUI() {
       { transaction: tx },
       {
         onSuccess: async () => {
+          displayTxMessage(`[ SUCCESS: GEAR UNEQUIPPED ]`);
+          await new Promise(resolve => setTimeout(resolve, 3000)); // Wait for blockchain finality
           await refreshTerminalState();
+          setIsProcessingTx(false);
         },
-        onError: (err) => console.error(err),
+        onError: (err) => {
+          console.error(err);
+          displayTxMessage(`[ ERROR: TRANSACTION REJECTED OR FAILED ]`);
+          setIsProcessingTx(false);
+        },
       }
     );
   };
@@ -304,6 +255,14 @@ function TerminalUI() {
   const handleReroll = () => setActiveTraits(generateRandomOperative());
 
   const mintOperative = () => {
+    if (!account || isProcessingTx) {
+      if (!account) displayTxMessage("[ ERROR: PLEASE CONNECT WALLET ]");
+      return;
+    }
+    
+    setIsProcessingTx(true);
+    displayTxMessage(`[ PREPARING MINT TRANSACTION... PLEASE SIGN IN WALLET ]`);
+
     const tx = new Transaction();
 
     const getTraitFile = (category: string) => {
@@ -329,21 +288,26 @@ function TerminalUI() {
     signAndExecuteTransaction(
       { transaction: tx },
       {
-        onSuccess: () => {
-          refetchOperatives();
-          if (account?.address) {
-            fetchOperativeWithGraphQL(account.address, PACKAGE_ID).then(setGraphqlOperatives);
-          }
+        onSuccess: async () => {
+          displayTxMessage(`[ SUCCESS: CONSTRUCT DEPLOYED ON-CHAIN ]`);
+          await new Promise(resolve => setTimeout(resolve, 3000)); // Wait for blockchain finality
+          await refreshTerminalState();
+          setIsProcessingTx(false);
         },
-        onError: (err) => console.error(err),
+        onError: (err) => {
+          console.error(err);
+          displayTxMessage(`[ ERROR: MINT TRANSACTION REJECTED OR FAILED ]`);
+          setIsProcessingTx(false);
+        },
       }
     );
   };
 
+  const displayOperatives = ownedOperatives?.data || [];
+
   return (
     <div style={{ position: 'relative', width: '100%', minHeight: '100vh', backgroundColor: '#050505', color: '#ffffff', fontFamily: 'monospace', boxSizing: 'border-box', overflowX: 'hidden' }}>
       
-      {/* UI CSS OVERRIDES */}
       <style>{`
         .hud-frame {
           position: relative;
@@ -390,10 +354,8 @@ function TerminalUI() {
         }
       `}</style>
 
-      {/* CRT SCANLINE OVERLAY */}
       <div className="crt-overlay" />
 
-      {/* 3D BACKGROUND */}
       <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', zIndex: 0, pointerEvents: 'none' }}>
         <Canvas camera={{ position: [0, 0, 8], fov: 50 }} style={{ width: '100%', height: '100%' }}>
           <ambientLight intensity={1} />
@@ -401,35 +363,50 @@ function TerminalUI() {
         </Canvas>
       </div>
 
-      {/* TERMINAL UI CONTAINER */}
       <div style={{ padding: '1.5rem', position: 'relative', zIndex: 1, maxWidth: '1200px', margin: '0 auto' }}>
-        <header style={{ display: 'flex', flexDirection: 'column', gap: '1rem', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2.5rem', borderBottom: '1px solid rgba(0, 255, 0, 0.3)', paddingBottom: '1rem' }}>
+        <header style={{ display: 'flex', flexDirection: 'column', gap: '1rem', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', borderBottom: '1px solid rgba(0, 255, 0, 0.3)', paddingBottom: '1rem' }}>
           <div style={{ width: '100%', display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
             <h1 style={{ margin: 0, fontSize: '1.4rem', letterSpacing: '2px', color: '#00ff00', textShadow: '0 0 10px rgba(0,255,0,0.3)' }}>NUMB_POLYS // TERMINAL</h1>
             
             <div style={{ display: 'flex', gap: '1rem' }}>
               <button 
-                onClick={() => setActiveView('GENERATOR')} 
-                style={{ background: activeView === 'GENERATOR' ? '#00ff00' : 'transparent', color: activeView === 'GENERATOR' ? '#000' : '#00ff00', padding: '6px 16px', border: '1px solid #00ff00', cursor: 'pointer', fontFamily: 'monospace', fontWeight: 'bold' }}>
+                onClick={() => !isProcessingTx && setActiveView('GENERATOR')} 
+                style={{ background: activeView === 'GENERATOR' ? '#00ff00' : 'transparent', color: activeView === 'GENERATOR' ? '#000' : '#00ff00', padding: '6px 16px', border: '1px solid #00ff00', cursor: isProcessingTx ? 'not-allowed' : 'pointer', fontFamily: 'monospace', fontWeight: 'bold' }}>
                 [ GENERATOR ]
               </button>
               <button 
-                onClick={() => setActiveView('ARMORY')} 
-                style={{ background: activeView === 'ARMORY' ? '#00ff00' : 'transparent', color: activeView === 'ARMORY' ? '#000' : '#00ff00', padding: '6px 16px', border: '1px solid #00ff00', cursor: 'pointer', fontFamily: 'monospace', fontWeight: 'bold' }}>
+                onClick={() => !isProcessingTx && setActiveView('ARMORY')} 
+                style={{ background: activeView === 'ARMORY' ? '#00ff00' : 'transparent', color: activeView === 'ARMORY' ? '#000' : '#00ff00', padding: '6px 16px', border: '1px solid #00ff00', cursor: isProcessingTx ? 'not-allowed' : 'pointer', fontFamily: 'monospace', fontWeight: 'bold' }}>
                 [ THE ARMORY ]
               </button>
             </div>
             
-            {/* STYLED WALLET BUTTON */}
             <div className="neon-wallet-override">
               <ConnectButton />
             </div>
           </div>
         </header>
 
+        {txMessage && (
+          <div style={{
+            width: '100%', 
+            maxWidth: '500px', 
+            margin: '0 auto 2rem auto', 
+            padding: '12px', 
+            textAlign: 'center',
+            fontWeight: 'bold',
+            backgroundColor: txMessage.includes('ERROR') ? 'rgba(255, 0, 0, 0.15)' : 'rgba(0, 255, 0, 0.15)',
+            border: `1px solid ${txMessage.includes('ERROR') ? '#ff3333' : '#00ff00'}`,
+            color: txMessage.includes('ERROR') ? '#ff3333' : '#00ff00',
+            boxShadow: `0 0 10px ${txMessage.includes('ERROR') ? 'rgba(255,0,0,0.3)' : 'rgba(0,255,0,0.3)'}`,
+            backdropFilter: 'blur(4px)'
+          }}>
+            {txMessage}
+          </div>
+        )}
+
         {activeView === 'GENERATOR' ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', justifyContent: 'center', alignItems: 'center' }}>
-            {/* TACTICAL HUD FRAME */}
             <div className="hud-frame" style={{ width: '100%', maxWidth: '400px', display: 'flex', justifyContent: 'center' }}>
               <div className="hud-corner-bottom" />
               <LayerStacker layers={activeTraits} />
@@ -451,15 +428,15 @@ function TerminalUI() {
                 </ul>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                <button onClick={handleReroll} style={{ padding: '12px', background: 'transparent', color: '#fff', border: '1px solid #444', cursor: 'pointer', fontFamily: 'monospace', fontWeight: 'bold' }}>
+                <button onClick={handleReroll} disabled={isProcessingTx} style={{ padding: '12px', background: 'transparent', color: '#fff', border: '1px solid #444', cursor: isProcessingTx ? 'not-allowed' : 'pointer', fontFamily: 'monospace', fontWeight: 'bold' }}>
                   ⟳ INITIATE RE-ROLL
                 </button>
                 <button 
                   onClick={mintOperative} 
-                  disabled={!account} 
-                  style={{ padding: '14px', background: account ? '#00ff00' : '#111', color: account ? '#000' : '#444', border: account ? '1px solid #00ff00' : '1px solid #222', cursor: account ? 'pointer' : 'not-allowed', fontFamily: 'monospace', fontWeight: 'bold' }}
+                  disabled={!account || isProcessingTx} 
+                  style={{ padding: '14px', background: account && !isProcessingTx ? '#00ff00' : '#111', color: account && !isProcessingTx ? '#000' : '#444', border: account && !isProcessingTx ? '1px solid #00ff00' : '1px solid #222', cursor: account && !isProcessingTx ? 'pointer' : 'not-allowed', fontFamily: 'monospace', fontWeight: 'bold' }}
                 >
-                  {account ? '⚡ DEPLOY CONSTRUCT (MINT)' : '⚡ CONNECT TERMINAL WALLET'}
+                  {isProcessingTx ? '⚡ PROCESSING...' : (account ? '⚡ DEPLOY CONSTRUCT (MINT)' : '⚡ CONNECT TERMINAL WALLET')}
                 </button>
               </div>
             </div>
@@ -468,14 +445,15 @@ function TerminalUI() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '2.5rem', justifyContent: 'center', alignItems: 'center' }}>
             <div style={{ width: '100%', maxWidth: '400px' }}>
               <h3 style={{ margin: '0 0 1rem 0', color: '#00ff00' }}>// LIVE ON-CHAIN CONSTRUCT</h3>
-              {(ownedOperatives?.data?.length || graphqlOperatives.length > 0) && (
+              {displayOperatives.length > 0 && (
                 <select 
                   value={selectedOpId || ''} 
                   onChange={(e) => setSelectedOpId(e.target.value)}
-                  style={{ background: 'rgba(0,0,0,0.8)', color: '#00ff00', border: '1px solid #00ff00', padding: '10px', marginBottom: '1.5rem', width: '100%', fontFamily: 'monospace', cursor: 'pointer' }}
+                  disabled={isProcessingTx}
+                  style={{ background: 'rgba(0,0,0,0.8)', color: '#00ff00', border: '1px solid #00ff00', padding: '10px', marginBottom: '1.5rem', width: '100%', fontFamily: 'monospace', cursor: isProcessingTx ? 'not-allowed' : 'pointer' }}
                 >
-                  {(graphqlOperatives.length > 0 ? graphqlOperatives : ownedOperatives?.data || []).map((op: any) => {
-                    const id = op.address || op.data?.objectId;
+                  {displayOperatives.map((op: any) => {
+                    const id = op.data?.objectId || op.address;
                     return (
                       <option key={id} value={id}>
                         OPERATIVE // {id.slice(0, 6)}...{id.slice(-4)}
@@ -515,8 +493,9 @@ function TerminalUI() {
                       {isEquipped && (
                         <button 
                           onClick={() => handleUnequip(slot)}
-                          style={{ background: 'transparent', color: '#ff3333', border: '1px solid #ff3333', padding: '4px 8px', cursor: 'pointer', fontFamily: 'monospace', fontSize: '0.75rem' }}>
-                          [ UNEQUIP ]
+                          disabled={isProcessingTx}
+                          style={{ background: 'transparent', color: isProcessingTx ? '#444' : '#ff3333', border: isProcessingTx ? '1px dashed #333' : '1px solid #ff3333', padding: '4px 8px', cursor: isProcessingTx ? 'not-allowed' : 'pointer', fontFamily: 'monospace', fontSize: '0.75rem' }}>
+                          {isProcessingTx ? '[ LOADING ]' : '[ UNEQUIP ]'}
                         </button>
                       )}
                     </div>
@@ -544,18 +523,18 @@ function TerminalUI() {
                         </div>
                         <button
                           onClick={() => handleEquip(item.data!.objectId, cat)}
-                          disabled={isSlotOccupied}
+                          disabled={isSlotOccupied || isProcessingTx}
                           style={{
-                            background: isSlotOccupied ? 'transparent' : '#00ff00',
-                            color: isSlotOccupied ? '#444' : '#000',
-                            border: isSlotOccupied ? '1px dashed #333' : '1px solid #00ff00',
+                            background: isSlotOccupied ? 'transparent' : (isProcessingTx ? '#222' : '#00ff00'),
+                            color: isSlotOccupied ? '#444' : (isProcessingTx ? '#777' : '#000'),
+                            border: isSlotOccupied ? '1px dashed #333' : (isProcessingTx ? '1px solid #444' : '1px solid #00ff00'),
                             padding: '4px 8px',
-                            cursor: isSlotOccupied ? 'not-allowed' : 'pointer',
+                            cursor: (isSlotOccupied || isProcessingTx) ? 'not-allowed' : 'pointer',
                             fontFamily: 'monospace',
                             fontSize: '0.75rem'
                           }}
                         >
-                          {isSlotOccupied ? 'SLOT BUSY' : '[ EQUIP ]'}
+                          {isSlotOccupied ? 'SLOT BUSY' : (isProcessingTx ? 'LOADING...' : '[ EQUIP ]')}
                         </button>
                       </div>
                     );
