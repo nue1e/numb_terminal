@@ -306,14 +306,14 @@ function TerminalUI() {
   const displayOperatives = ownedOperatives?.data || [];
 
   return (
-    <div style={{ position: 'relative', width: '100%', minHeight: '100vh', backgroundColor: '#050505', color: '#ffffff', fontFamily: 'monospace', boxSizing: 'border-box', overflowX: 'hidden' }}>
+    <div style={{ position: 'relative', width: '100%', minHeight: '100vh', backgroundColor: '#0D0D11', color: '#E5E5E5', fontFamily: 'var(--font-geist-sans), monospace', boxSizing: 'border-box', overflowX: 'hidden' }}>
       
       <style>{`
         .hud-frame {
           position: relative;
-          background: rgba(10, 10, 10, 0.6);
+          background: rgba(255, 255, 255, 0.02);
           backdrop-filter: blur(8px);
-          border: 1px solid rgba(0, 255, 0, 0.15);
+          border: 1px solid rgba(255, 255, 255, 0.1);
           padding: 8px;
         }
         .hud-frame::before, .hud-frame::after, .hud-corner-bottom::before, .hud-corner-bottom::after {
@@ -321,7 +321,7 @@ function TerminalUI() {
           position: absolute;
           width: 20px;
           height: 20px;
-          border-color: #00ff00;
+          border-color: #06B6D4;
           border-style: solid;
         }
         .hud-frame::before { top: -1px; left: -1px; border-width: 2px 0 0 2px; }
@@ -330,27 +330,28 @@ function TerminalUI() {
         .hud-corner-bottom::after { bottom: -1px; right: -1px; border-width: 0 2px 2px 0; }
 
         .neon-wallet-override button {
-          background-color: rgba(10, 10, 10, 0.8) !important;
-          border: 1px solid #00ff00 !important;
-          color: #00ff00 !important;
-          font-family: monospace !important;
-          border-radius: 0 !important;
-          box-shadow: 0 0 8px rgba(0, 255, 0, 0.15) !important;
-          transition: all 0.2s ease !important;
+          background-color: rgba(255, 255, 255, 0.03) !important;
+          border: 1px solid rgba(255, 255, 255, 0.15) !important;
+          color: #E5E5E5 !important;
+          font-family: inherit !important;
+          border-radius: 2px !important;
+          backdrop-filter: blur(8px) !important;
+          transition: all 0.3s ease !important;
         }
         .neon-wallet-override button:hover {
-          background-color: rgba(0, 255, 0, 0.1) !important;
-          box-shadow: 0 0 15px rgba(0, 255, 0, 0.4) !important;
+          background-color: #E5E5E5 !important;
+          color: #0D0D11 !important;
+          border-color: #E5E5E5 !important;
         }
 
         .crt-overlay {
           position: fixed;
           top: 0; left: 0; width: 100vw; height: 100vh;
-          background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+          background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.02), rgba(6, 182, 212, 0.01), rgba(0, 0, 255, 0.02));
           background-size: 100% 3px, 3px 100%;
           z-index: 9999;
           pointer-events: none;
-          opacity: 0.4;
+          opacity: 0.2;
         }
       `}</style>
 
@@ -364,19 +365,49 @@ function TerminalUI() {
       </div>
 
       <div style={{ padding: '1.5rem', position: 'relative', zIndex: 1, maxWidth: '1200px', margin: '0 auto' }}>
-        <header style={{ display: 'flex', flexDirection: 'column', gap: '1rem', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', borderBottom: '1px solid rgba(0, 255, 0, 0.3)', paddingBottom: '1rem' }}>
+        <header style={{ display: 'flex', flexDirection: 'column', gap: '1rem', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '1rem' }}>
           <div style={{ width: '100%', display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
-            <h1 style={{ margin: 0, fontSize: '1.4rem', letterSpacing: '2px', color: '#00ff00', textShadow: '0 0 10px rgba(0,255,0,0.3)' }}>NUMB_POLYS // TERMINAL</h1>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+              <h1 style={{ margin: 0, fontSize: '1.2rem', letterSpacing: '2px', color: '#ffffff' }}>NUMB_POLYS // TERMINAL</h1>
+              
+              {/* BACK TO MAIN WEBSITE BUTTON */}
+              <a 
+                href="https://www.numbpolys.xyz/" 
+                style={{
+                  background: 'rgba(255, 255, 255, 0.03)',
+                  border: '1px solid rgba(255, 255, 255, 0.15)',
+                  color: '#E5E5E5',
+                  padding: '6px 12px',
+                  borderRadius: '2px',
+                  fontSize: '10px',
+                  letterSpacing: '0.1em',
+                  textTransform: 'uppercase',
+                  textDecoration: 'none',
+                  backdropFilter: 'blur(8px)',
+                  transition: 'all 0.3s ease'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = '#E5E5E5';
+                  e.currentTarget.style.color = '#0D0D11';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.03)';
+                  e.currentTarget.style.color = '#E5E5E5';
+                }}
+              >
+                ← Back to Main
+              </a>
+            </div>
             
             <div style={{ display: 'flex', gap: '1rem' }}>
               <button 
                 onClick={() => !isProcessingTx && setActiveView('GENERATOR')} 
-                style={{ background: activeView === 'GENERATOR' ? '#00ff00' : 'transparent', color: activeView === 'GENERATOR' ? '#000' : '#00ff00', padding: '6px 16px', border: '1px solid #00ff00', cursor: isProcessingTx ? 'not-allowed' : 'pointer', fontFamily: 'monospace', fontWeight: 'bold' }}>
+                style={{ background: activeView === 'GENERATOR' ? '#E5E5E5' : 'rgba(255,255,255,0.03)', color: activeView === 'GENERATOR' ? '#0D0D11' : '#E5E5E5', padding: '6px 16px', border: '1px solid rgba(255,255,255,0.15)', cursor: isProcessingTx ? 'not-allowed' : 'pointer', fontFamily: 'inherit', fontWeight: '500', borderRadius: '2px', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
                 [ GENERATOR ]
               </button>
               <button 
                 onClick={() => !isProcessingTx && setActiveView('ARMORY')} 
-                style={{ background: activeView === 'ARMORY' ? '#00ff00' : 'transparent', color: activeView === 'ARMORY' ? '#000' : '#00ff00', padding: '6px 16px', border: '1px solid #00ff00', cursor: isProcessingTx ? 'not-allowed' : 'pointer', fontFamily: 'monospace', fontWeight: 'bold' }}>
+                style={{ background: activeView === 'ARMORY' ? '#E5E5E5' : 'rgba(255,255,255,0.03)', color: activeView === 'ARMORY' ? '#0D0D11' : '#E5E5E5', padding: '6px 16px', border: '1px solid rgba(255,255,255,0.15)', cursor: isProcessingTx ? 'not-allowed' : 'pointer', fontFamily: 'inherit', fontWeight: '500', borderRadius: '2px', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
                 [ THE ARMORY ]
               </button>
             </div>
@@ -395,10 +426,10 @@ function TerminalUI() {
             padding: '12px', 
             textAlign: 'center',
             fontWeight: 'bold',
-            backgroundColor: txMessage.includes('ERROR') ? 'rgba(255, 0, 0, 0.15)' : 'rgba(0, 255, 0, 0.15)',
-            border: `1px solid ${txMessage.includes('ERROR') ? '#ff3333' : '#00ff00'}`,
-            color: txMessage.includes('ERROR') ? '#ff3333' : '#00ff00',
-            boxShadow: `0 0 10px ${txMessage.includes('ERROR') ? 'rgba(255,0,0,0.3)' : 'rgba(0,255,0,0.3)'}`,
+            backgroundColor: txMessage.includes('ERROR') ? 'rgba(255, 0, 0, 0.15)' : 'rgba(6, 182, 212, 0.15)',
+            border: `1px solid ${txMessage.includes('ERROR') ? '#ff3333' : '#06B6D4'}`,
+            color: txMessage.includes('ERROR') ? '#ff3333' : '#06B6D4',
+            boxShadow: `0 0 15px ${txMessage.includes('ERROR') ? 'rgba(255,0,0,0.3)' : 'rgba(6,182,212,0.3)'}`,
             backdropFilter: 'blur(4px)'
           }}>
             {txMessage}
@@ -407,34 +438,34 @@ function TerminalUI() {
 
         {activeView === 'GENERATOR' ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', justifyContent: 'center', alignItems: 'center' }}>
-            <div className="hud-frame" style={{ width: '100%', maxWidth: '400px', display: 'flex', justifyContent: 'center' }}>
+            <div className="hud-frame" style={{ width: '100%', maxWidth: '400px', display: 'flex', justifyContent: 'center', borderRadius: '2px' }}>
               <div className="hud-corner-bottom" />
               <LayerStacker layers={activeTraits} />
             </div>
 
             <div style={{ width: '100%', maxWidth: '500px' }}>
-              <div style={{ background: 'rgba(5,5,5,0.8)', border: '1px solid #222', padding: '1.5rem', marginBottom: '1.5rem', backdropFilter: 'blur(4px)' }}>
-                <h3 style={{ margin: '0 0 1rem 0', color: '#00ff00', fontSize: '1rem', borderBottom: '1px dashed #333', paddingBottom: '0.5rem' }}>// ACTIVE TRAIT MATRIX</h3>
-                <ul style={{ listStyle: 'none', padding: 0, margin: 0, fontSize: '0.85rem', color: '#ccc', lineHeight: '1.8' }}>
+              <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.1)', padding: '1.5rem', marginBottom: '1.5rem', backdropFilter: 'blur(12px)', borderRadius: '2px' }}>
+                <h3 style={{ margin: '0 0 1rem 0', color: '#06B6D4', fontSize: '1rem', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.1em' }}>// ACTIVE TRAIT MATRIX</h3>
+                <ul style={{ listStyle: 'none', padding: 0, margin: 0, fontSize: '0.85rem', color: '#A3A3A3', lineHeight: '1.8' }}>
                   {activeTraits.map((t, idx) => {
                     const [cat, file] = t.split('/');
                     return (
                       <li key={idx} style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem' }}>
-                        <span style={{ color: '#fff' }}>{cat.toUpperCase()}:</span>
-                        <span style={{ textAlign: 'right', color: '#00ff00' }}>{file.replace('.png', '')}</span>
+                        <span style={{ color: '#E5E5E5' }}>{cat.toUpperCase()}:</span>
+                        <span style={{ textAlign: 'right', color: '#06B6D4' }}>{file.replace('.png', '')}</span>
                       </li>
                     );
                   })}
                 </ul>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                <button onClick={handleReroll} disabled={isProcessingTx} style={{ padding: '12px', background: 'transparent', color: '#fff', border: '1px solid #444', cursor: isProcessingTx ? 'not-allowed' : 'pointer', fontFamily: 'monospace', fontWeight: 'bold' }}>
+                <button onClick={handleReroll} disabled={isProcessingTx} style={{ padding: '12px', background: 'rgba(255,255,255,0.03)', color: '#E5E5E5', border: '1px solid rgba(255,255,255,0.15)', cursor: isProcessingTx ? 'not-allowed' : 'pointer', fontFamily: 'inherit', fontWeight: '500', borderRadius: '2px', textTransform: 'uppercase', letterSpacing: '0.1em', transition: 'all 0.3s ease' }}>
                   ⟳ INITIATE RE-ROLL
                 </button>
                 <button 
                   onClick={mintOperative} 
                   disabled={!account || isProcessingTx} 
-                  style={{ padding: '14px', background: account && !isProcessingTx ? '#00ff00' : '#111', color: account && !isProcessingTx ? '#000' : '#444', border: account && !isProcessingTx ? '1px solid #00ff00' : '1px solid #222', cursor: account && !isProcessingTx ? 'pointer' : 'not-allowed', fontFamily: 'monospace', fontWeight: 'bold' }}
+                  style={{ padding: '14px', background: account && !isProcessingTx ? '#E5E5E5' : 'rgba(255,255,255,0.03)', color: account && !isProcessingTx ? '#0D0D11' : '#555', border: account && !isProcessingTx ? '1px solid #E5E5E5' : '1px solid rgba(255,255,255,0.1)', cursor: account && !isProcessingTx ? 'pointer' : 'not-allowed', fontFamily: 'inherit', fontWeight: '600', borderRadius: '2px', textTransform: 'uppercase', letterSpacing: '0.1em', transition: 'all 0.3s ease' }}
                 >
                   {isProcessingTx ? '⚡ PROCESSING...' : (account ? '⚡ DEPLOY CONSTRUCT (MINT)' : '⚡ CONNECT TERMINAL WALLET')}
                 </button>
@@ -444,13 +475,13 @@ function TerminalUI() {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '2.5rem', justifyContent: 'center', alignItems: 'center' }}>
             <div style={{ width: '100%', maxWidth: '400px' }}>
-              <h3 style={{ margin: '0 0 1rem 0', color: '#00ff00' }}>// LIVE ON-CHAIN CONSTRUCT</h3>
+              <h3 style={{ margin: '0 0 1rem 0', color: '#06B6D4', textTransform: 'uppercase', letterSpacing: '0.1em' }}>// LIVE ON-CHAIN CONSTRUCT</h3>
               {displayOperatives.length > 0 && (
                 <select 
                   value={selectedOpId || ''} 
                   onChange={(e) => setSelectedOpId(e.target.value)}
                   disabled={isProcessingTx}
-                  style={{ background: 'rgba(0,0,0,0.8)', color: '#00ff00', border: '1px solid #00ff00', padding: '10px', marginBottom: '1.5rem', width: '100%', fontFamily: 'monospace', cursor: isProcessingTx ? 'not-allowed' : 'pointer' }}
+                  style={{ background: 'rgba(13,13,17,0.9)', color: '#06B6D4', border: '1px solid rgba(255,255,255,0.15)', padding: '10px', marginBottom: '1.5rem', width: '100%', fontFamily: 'inherit', cursor: isProcessingTx ? 'not-allowed' : 'pointer', borderRadius: '2px' }}
                 >
                   {displayOperatives.map((op: any) => {
                     const id = op.data?.objectId || op.address;
@@ -464,29 +495,29 @@ function TerminalUI() {
               )}
               
               {selectedOpId ? (
-                <div className="hud-frame" style={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
+                <div className="hud-frame" style={{ display: 'flex', justifyContent: 'center', width: '100%', borderRadius: '2px' }}>
                   <div className="hud-corner-bottom" />
                   <LayerStacker layers={getOperativePreviewLayers()} />
                 </div>
               ) : (
-                <div style={{ width: '100%', maxWidth: '380px', height: '380px', border: '1px dashed #00ff00', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#00ff00', margin: '0 auto', background: 'rgba(0,255,0,0.05)' }}>
+                <div style={{ width: '100%', maxWidth: '380px', height: '380px', border: '1px dashed rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#A3A3A3', margin: '0 auto', background: 'rgba(255,255,255,0.01)', borderRadius: '2px' }}>
                   AWAITING CONSTRUCT DATA...
                 </div>
               )}
             </div>
 
             <div style={{ width: '100%', maxWidth: '550px' }}>
-              <div style={{ background: 'rgba(5,5,5,0.8)', border: '1px solid #222', padding: '1.5rem', marginBottom: '1.5rem', backdropFilter: 'blur(4px)' }}>
-                <h3 style={{ margin: '0 0 1rem 0', color: '#00ff00', borderBottom: '1px dashed #333', paddingBottom: '0.5rem' }}>
-                  // EQUIPMENT SLOTS {isLoadingSlots && <span style={{ color: '#fff' }}>(SYNCING...)</span>}
+              <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.1)', padding: '1.5rem', marginBottom: '1.5rem', backdropFilter: 'blur(12px)', borderRadius: '2px' }}>
+                <h3 style={{ margin: '0 0 1rem 0', color: '#06B6D4', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                  // EQUIPMENT SLOTS {isLoadingSlots && <span style={{ color: '#E5E5E5' }}>(SYNCING...)</span>}
                 </h3>
                 {LAYER_ORDER.filter(s => s !== 'base body').map((slot) => {
                   const isEquipped = !!equippedGear[slot];
                   return (
-                    <div key={slot} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid #111' }}>
+                    <div key={slot} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                       <div style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        <span style={{ color: isEquipped ? '#fff' : '#444' }}>[{slot.toUpperCase()}] </span>
-                        <span style={{ color: isEquipped ? '#00ff00' : '#333', fontSize: '0.85rem' }}>
+                        <span style={{ color: isEquipped ? '#E5E5E5' : '#555' }}>[{slot.toUpperCase()}] </span>
+                        <span style={{ color: isEquipped ? '#06B6D4' : '#444', fontSize: '0.85rem' }}>
                           {isEquipped ? equippedGear[slot].imageUrl.replace('.png', '') : 'EMPTY'}
                         </span>
                       </div>
@@ -494,7 +525,7 @@ function TerminalUI() {
                         <button 
                           onClick={() => handleUnequip(slot)}
                           disabled={isProcessingTx}
-                          style={{ background: 'transparent', color: isProcessingTx ? '#444' : '#ff3333', border: isProcessingTx ? '1px dashed #333' : '1px solid #ff3333', padding: '4px 8px', cursor: isProcessingTx ? 'not-allowed' : 'pointer', fontFamily: 'monospace', fontSize: '0.75rem' }}>
+                          style={{ background: 'transparent', color: isProcessingTx ? '#555' : '#ff3333', border: isProcessingTx ? '1px dashed rgba(255,255,255,0.1)' : '1px solid rgba(255,51,51,0.5)', padding: '4px 8px', cursor: isProcessingTx ? 'not-allowed' : 'pointer', fontFamily: 'inherit', fontSize: '0.75rem', borderRadius: '2px' }}>
                           {isProcessingTx ? '[ LOADING ]' : '[ UNEQUIP ]'}
                         </button>
                       )}
@@ -503,8 +534,8 @@ function TerminalUI() {
                 })}
               </div>
 
-              <div style={{ background: 'rgba(5,5,5,0.8)', border: '1px solid #222', padding: '1.5rem', backdropFilter: 'blur(4px)' }}>
-                <h3 style={{ margin: '0 0 1rem 0', color: '#00ff00', borderBottom: '1px dashed #333', paddingBottom: '0.5rem' }}>
+              <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.1)', padding: '1.5rem', backdropFilter: 'blur(12px)', borderRadius: '2px' }}>
+                <h3 style={{ margin: '0 0 1rem 0', color: '#06B6D4', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
                   // DECOUPLED INVENTORY
                 </h3>
                 {!looseTraits?.data?.length ? (
@@ -516,22 +547,24 @@ function TerminalUI() {
                     const isSlotOccupied = !!equippedGear[cat];
 
                     return (
-                      <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid #111' }}>
+                      <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                         <div style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          <span style={{ color: '#fff' }}>[{cat?.toUpperCase()}]</span>{' '}
-                          <span style={{ color: '#00ff00', fontSize: '0.85rem' }}>{fields?.image_url?.replace('.png', '')}</span>
+                          <span style={{ color: '#E5E5E5' }}>[{cat?.toUpperCase()}]</span>{' '}
+                          <span style={{ color: '#06B6D4', fontSize: '0.85rem' }}>{fields?.image_url?.replace('.png', '')}</span>
                         </div>
                         <button
                           onClick={() => handleEquip(item.data!.objectId, cat)}
                           disabled={isSlotOccupied || isProcessingTx}
                           style={{
-                            background: isSlotOccupied ? 'transparent' : (isProcessingTx ? '#222' : '#00ff00'),
-                            color: isSlotOccupied ? '#444' : (isProcessingTx ? '#777' : '#000'),
-                            border: isSlotOccupied ? '1px dashed #333' : (isProcessingTx ? '1px solid #444' : '1px solid #00ff00'),
+                            background: isSlotOccupied ? 'transparent' : (isProcessingTx ? 'rgba(255,255,255,0.05)' : '#E5E5E5'),
+                            color: isSlotOccupied ? '#555' : (isProcessingTx ? '#777' : '#0D0D11'),
+                            border: isSlotOccupied ? '1px dashed rgba(255,255,255,0.1)' : (isProcessingTx ? '1px solid rgba(255,255,255,0.1)' : '1px solid #E5E5E5'),
                             padding: '4px 8px',
                             cursor: (isSlotOccupied || isProcessingTx) ? 'not-allowed' : 'pointer',
-                            fontFamily: 'monospace',
-                            fontSize: '0.75rem'
+                            fontFamily: 'inherit',
+                            fontSize: '0.75rem',
+                            borderRadius: '2px',
+                            transition: 'all 0.3s ease'
                           }}
                         >
                           {isSlotOccupied ? 'SLOT BUSY' : (isProcessingTx ? 'LOADING...' : '[ EQUIP ]')}

@@ -1,3 +1,5 @@
+'use client';
+
 import React, { useRef, useState } from 'react';
 
 interface LayerStackerProps {
@@ -59,16 +61,20 @@ export function LayerStacker({ layers }: LayerStackerProps) {
   };
 
   return (
-    <div style={{ display: 'inline-block' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%' }}>
+      {/* PREVIEW CONTAINER - RESTORED TO PROPER 380x380 SIZING */}
       <div
         style={{
           position: 'relative',
           width: '380px',
           height: '380px',
-          background: '#050505',
-          border: '1px solid #00ff00',
+          background: 'rgba(13, 13, 17, 0.9)',
+          border: '1px solid rgba(255, 255, 255, 0.15)',
+          backdropFilter: 'blur(12px)',
           overflow: 'hidden',
           marginBottom: '1rem',
+          borderRadius: '2px',
+          boxShadow: '0 0 30px rgba(6, 182, 212, 0.08)',
         }}
       >
         {layers.map((layerPath, index) => {
@@ -92,19 +98,25 @@ export function LayerStacker({ layers }: LayerStackerProps) {
         })}
       </div>
 
+      {/* EXPORT BUTTON */}
       <button
         onClick={exportCompositeImage}
         disabled={isExporting}
         style={{
           display: 'block',
-          width: '100%',
-          padding: '10px',
-          background: isExporting ? '#333' : '#111',
-          color: '#00ff00',
-          border: '1px solid #00ff00',
+          width: '380px',
+          padding: '12px',
+          background: isExporting ? 'rgba(255,255,255,0.05)' : 'rgba(255, 255, 255, 0.03)',
+          color: isExporting ? '#777' : '#E5E5E5',
+          border: '1px solid rgba(255, 255, 255, 0.15)',
           cursor: isExporting ? 'not-allowed' : 'pointer',
-          fontFamily: 'monospace',
-          fontWeight: 'bold',
+          fontFamily: 'inherit',
+          fontWeight: '500',
+          fontSize: '11px',
+          textTransform: 'uppercase',
+          letterSpacing: '0.1em',
+          borderRadius: '2px',
+          transition: 'all 0.3s ease',
         }}
       >
         {isExporting ? 'COMPOSITING 2000x2000...' : '⬇ EXPORT COMPOSITE PNG'}
