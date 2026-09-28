@@ -69,6 +69,10 @@ function TerminalUI() {
   const [equippedGear, setEquippedGear] = useState<Record<string, { objectId: string; imageUrl: string }>>({});
   const [isLoadingSlots, setIsLoadingSlots] = useState(false);
 
+  // New Image Assembly State Trackers
+  const [imgLoadCount, setImgLoadCount] = useState(0);
+  const [forceRender, setForceRender] = useState(false);
+
   const [mintQuantity, setMintQuantity] = useState<number>(1);
   const [isProcessingTx, setIsProcessingTx] = useState(false);
   const [txMessage, setTxMessage] = useState<string | null>(null);
@@ -126,6 +130,16 @@ function TerminalUI() {
     }
   }, [ownedOperatives, selectedOpId]);
 
+  // Reset loading count whenever the active operative changes or slots are loading
+  useEffect(() => {
+    setImgLoadCount(0);
+    setForceRender(false);
+    const timer = setTimeout(() => setForceRender(true), 12000); // 12s failsafe timeout
+    return () => clearTimeout(timer);
+  }, [selectedOpId, isLoadingSlots]);
+
+  const handleImgLoad = () => setImgLoadCount(prev => prev + 1);
+
   const activeLoadRef = React.useRef<string | null>(null);
 
   const retryRpc = async <T,>(fn: () => Promise<T>, retries = 5, delay = 1500): Promise<T> => {
@@ -161,8 +175,6 @@ function TerminalUI() {
 
         if (activeLoadRef.current !== opId) return;
 
-        const imagePromises: Promise<void>[] = [];
-
         for (const childObject of childObjects) {
           const traitData = (childObject.data?.content as any)?.fields;
           const rawCat = traitData?.category || traitData?.Category || traitData?.name;
@@ -174,19 +186,8 @@ function TerminalUI() {
               objectId: childObject.data!.objectId,
               imageUrl: rawUrl,
             };
-
-            imagePromises.push(
-              new Promise((resolve) => {
-                const img = new Image();
-                img.src = rawUrl;
-                img.onload = () => resolve();
-                img.onerror = () => resolve();
-              })
-            );
           }
         }
-
-        await Promise.all(imagePromises);
       }
 
       if (activeLoadRef.current === opId) {
@@ -374,6 +375,21 @@ function TerminalUI() {
   const activeOpFields = (activeOpData?.data?.content as any)?.fields;
   const baseBodyUrl = activeOpFields?.image_url || activeOpFields?.url || '';
 
+  // Calculate rendering readiness
+  const activeLayers = [
+    equippedGear['background']?.imageUrl,
+    baseBodyUrl,
+    equippedGear['outfits']?.imageUrl,
+    equippedGear['face']?.imageUrl,
+    equippedGear['eye']?.imageUrl,
+    equippedGear['jewelries']?.imageUrl,
+    equippedGear['eyewear']?.imageUrl,
+    equippedGear['headwear']?.imageUrl,
+  ].filter(url => url && url.toLowerCase() !== 'none');
+
+  const expectedCount = activeLayers.length;
+  const isFullyRendered = forceRender || (!isLoadingSlots && expectedCount > 0 && imgLoadCount >= expectedCount);
+
   let buttonText = isProcessingTx ? '⚡ PROCESSING...' : '⚡ CONNECT TERMINAL WALLET';
   let buttonDisabled = !account || isProcessingTx;
   let buttonStyle = {
@@ -428,6 +444,7 @@ function TerminalUI() {
         .neon-wallet-override button { background-color: rgba(255, 255, 255, 0.03) !important; border: 1px solid rgba(255, 255, 255, 0.15) !important; color: #E5E5E5 !important; font-family: inherit !important; border-radius: 2px !important; backdrop-filter: blur(8px) !important; transition: all 0.3s ease !important; }
         .neon-wallet-override button:hover { background-color: #E5E5E5 !important; color: #0D0D11 !important; border-color: #E5E5E5 !important; }
         .crt-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.02), rgba(6, 182, 212, 0.01), rgba(0, 0, 255, 0.02)); background-size: 100% 3px, 3px 100%; z-index: 9999; pointer-events: none; opacity: 0.2; }
+        @keyframes spin { to { transform: rotate(360deg); } }
       `}</style>
 
       <div className="crt-overlay" />
@@ -533,15 +550,23 @@ function TerminalUI() {
                   <div className="hud-corner-bottom" />
                   <div style={{ position: 'relative', width: '380px', height: '380px', margin: '0 auto', background: 'rgba(0,0,0,0.3)' }}>
                     
-                    {equippedGear['background'] && equippedGear['background'].imageUrl.toLowerCase() !== 'none' && <img src={equippedGear['background'].imageUrl} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'contain', zIndex: 1 }} alt="Background" />}
-                    {baseBodyUrl && baseBodyUrl.toLowerCase() !== 'none' && <img src={baseBodyUrl} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'contain', zIndex: 2 }} alt="Base Body" />}
-                    {equippedGear['outfits'] && equippedGear['outfits'].imageUrl.toLowerCase() !== 'none' && <img src={equippedGear['outfits'].imageUrl} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'contain', zIndex: 3 }} alt="Outfit" />}
-                    {equippedGear['face'] && equippedGear['face'].imageUrl.toLowerCase() !== 'none' && <img src={equippedGear['face'].imageUrl} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'contain', zIndex: 4 }} alt="Face" />}
-                    {equippedGear['eye'] && equippedGear['eye'].imageUrl.toLowerCase() !== 'none' && <img src={equippedGear['eye'].imageUrl} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'contain', zIndex: 5 }} alt="Eye" />}
-                    {equippedGear['jewelries'] && equippedGear['jewelries'].imageUrl.toLowerCase() !== 'none' && <img src={equippedGear['jewelries'].imageUrl} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'contain', zIndex: 6 }} alt="Jewelry" />}
-                    {equippedGear['eyewear'] && equippedGear['eyewear'].imageUrl.toLowerCase() !== 'none' && <img src={equippedGear['eyewear'].imageUrl} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'contain', zIndex: 7 }} alt="Eyewear" />}
-                    {equippedGear['headwear'] && equippedGear['headwear'].imageUrl.toLowerCase() !== 'none' && <img src={equippedGear['headwear'].imageUrl} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'contain', zIndex: 8 }} alt="Headwear" />}
-                    
+                    {!isFullyRendered && (
+                      <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#0D0D11', zIndex: 20 }}>
+                        <div style={{ width: '40px', height: '40px', border: '3px solid rgba(6, 182, 212, 0.2)', borderTopColor: '#06B6D4', borderRadius: '50%', animation: 'spin 1s linear infinite', marginBottom: '1rem' }} />
+                        <span style={{ color: '#06B6D4', fontSize: '0.75rem', letterSpacing: '0.15em' }}>[ ASSEMBLING CONSTRUCT... ]</span>
+                      </div>
+                    )}
+
+                    <div style={{ opacity: isFullyRendered ? 1 : 0, transition: 'opacity 0.4s ease', width: '100%', height: '100%' }}>
+                      {equippedGear['background'] && equippedGear['background'].imageUrl.toLowerCase() !== 'none' && <img src={equippedGear['background'].imageUrl} onLoad={handleImgLoad} onError={handleImgLoad} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'contain', zIndex: 1 }} alt="Background" />}
+                      {baseBodyUrl && baseBodyUrl.toLowerCase() !== 'none' && <img src={baseBodyUrl} onLoad={handleImgLoad} onError={handleImgLoad} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'contain', zIndex: 2 }} alt="Base Body" />}
+                      {equippedGear['outfits'] && equippedGear['outfits'].imageUrl.toLowerCase() !== 'none' && <img src={equippedGear['outfits'].imageUrl} onLoad={handleImgLoad} onError={handleImgLoad} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'contain', zIndex: 3 }} alt="Outfit" />}
+                      {equippedGear['face'] && equippedGear['face'].imageUrl.toLowerCase() !== 'none' && <img src={equippedGear['face'].imageUrl} onLoad={handleImgLoad} onError={handleImgLoad} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'contain', zIndex: 4 }} alt="Face" />}
+                      {equippedGear['eye'] && equippedGear['eye'].imageUrl.toLowerCase() !== 'none' && <img src={equippedGear['eye'].imageUrl} onLoad={handleImgLoad} onError={handleImgLoad} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'contain', zIndex: 5 }} alt="Eye" />}
+                      {equippedGear['jewelries'] && equippedGear['jewelries'].imageUrl.toLowerCase() !== 'none' && <img src={equippedGear['jewelries'].imageUrl} onLoad={handleImgLoad} onError={handleImgLoad} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'contain', zIndex: 6 }} alt="Jewelry" />}
+                      {equippedGear['eyewear'] && equippedGear['eyewear'].imageUrl.toLowerCase() !== 'none' && <img src={equippedGear['eyewear'].imageUrl} onLoad={handleImgLoad} onError={handleImgLoad} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'contain', zIndex: 7 }} alt="Eyewear" />}
+                      {equippedGear['headwear'] && equippedGear['headwear'].imageUrl.toLowerCase() !== 'none' && <img src={equippedGear['headwear'].imageUrl} onLoad={handleImgLoad} onError={handleImgLoad} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'contain', zIndex: 8 }} alt="Headwear" />}
+                    </div>
                   </div>
                 </div>
               ) : (
