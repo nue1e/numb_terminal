@@ -29,10 +29,35 @@ const queryClient = new QueryClient({
   },
 });
 
-// THE ONLY RELIABLE LOCALHOST RPC
 const networks = {
   mainnet: { url: 'https://sui-mainnet-endpoint.blockvision.org' }
 } as any;
+
+const formatTraitName = (url: string) => {
+  if (!url || url.toLowerCase() === 'none') return 'NONE (BLANK)';
+  try {
+    const decoded = decodeURIComponent(url);
+    const parts = decoded.split('/');
+    let name = parts[parts.length - 1].replace('.png', '');
+    name = name.split('%')[0]; 
+    name = name.replace(/_/g, ' '); 
+    if (name.includes('#')) {
+      name = name.split('#')[0];
+    }
+    return name.trim();
+  } catch {
+    return 'EQUIPPED_ITEM';
+  }
+};
+
+const normalizeCategory = (rawCat: string) => {
+  if (!rawCat) return '';
+  let cat = rawCat.toLowerCase().trim();
+  if (cat === 'jewelry' || cat === 'jeweleries' || cat === 'jewelery' || cat === 'jewels') return 'jewelries';
+  if (cat === 'outfit') return 'outfits';
+  if (cat === 'eyes') return 'eye';
+  return cat;
+};
 
 function TerminalUI() {
   const account = useCurrentAccount();
@@ -53,7 +78,6 @@ function TerminalUI() {
     setTimeout(() => setTxMessage(null), 6000);
   };
 
-  // Removed refetchInterval to stop rate limiting.
   const { data: registryObj, refetch: refetchRegistry } = useSuiClientQuery(
     'getObject',
     { id: REGISTRY_ID, options: { showContent: true } }
@@ -141,10 +165,14 @@ function TerminalUI() {
 
         for (const childObject of childObjects) {
           const traitData = (childObject.data?.content as any)?.fields;
-          if (traitData && traitData.category) {
-            gearMap[traitData.category] = {
+          const rawCat = traitData?.category || traitData?.Category || traitData?.name;
+          const rawUrl = traitData?.image_url || traitData?.url || traitData?.image;
+          
+          if (rawCat && rawUrl) {
+            const cleanCat = normalizeCategory(rawCat);
+            gearMap[cleanCat] = {
               objectId: childObject.data!.objectId,
-              imageUrl: traitData.image_url,
+              imageUrl: rawUrl,
             };
           }
         }
@@ -179,8 +207,9 @@ function TerminalUI() {
 
   const handleEquip = (traitId: string, category: string) => {
     if (!selectedOpId || isProcessingTx) return;
-    if (equippedGear[category]) {
-      displayTxMessage(`[ ERROR: SLOT ${category.toUpperCase()} IS ALREADY OCCUPIED ]`);
+    const normalizedTarget = normalizeCategory(category);
+    if (equippedGear[normalizedTarget]) {
+      displayTxMessage(`[ ERROR: SLOT ${normalizedTarget.toUpperCase()} IS ALREADY OCCUPIED ]`);
       return;
     }
 
@@ -259,7 +288,12 @@ function TerminalUI() {
         if (!tokenData) throw new Error("Metadata index out of bounds");
 
         const traitCategories = Object.keys(tokenData.display_traits).filter(k => k !== 'Rarity Tier');
-        const traitNames = traitCategories.map(k => tokenData.display_traits[k as keyof typeof tokenData.display_traits]);
+        const traitNames = traitCategories.map(k => {
+          let val = tokenData.display_traits[k as keyof typeof tokenData.display_traits];
+          if (typeof val === 'string' && val.includes('#')) val = val.split('#')[0].trim();
+          return val;
+        });
+        
         const traitUrls = traitCategories.map(k => {
           const rawKey = k === 'Jewelry' ? 'Jeweleries' : k;
           return (tokenData.walrus_urls as any)[rawKey] || "None";
@@ -324,6 +358,10 @@ function TerminalUI() {
   };
 
   const displayOperatives = ownedOperatives?.data || [];
+  
+  const activeOpData = displayOperatives.find((op: any) => (op.data?.objectId || op.address) === selectedOpId);
+  const activeOpFields = (activeOpData?.data?.content as any)?.fields;
+  const baseBodyUrl = activeOpFields?.image_url || activeOpFields?.url || '';
 
   let buttonText = isProcessingTx ? '⚡ PROCESSING...' : '⚡ CONNECT TERMINAL WALLET';
   let buttonDisabled = !account || isProcessingTx;
@@ -418,7 +456,6 @@ function TerminalUI() {
           </div>
         )}
 
-        {/* VIEW ROUTING */}
         {activeView === 'GENERATOR' ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', justifyContent: 'center', alignItems: 'center' }}>
             <div className="hud-frame" style={{ width: '100%', maxWidth: '400px', display: 'flex', justifyContent: 'center', borderRadius: '2px' }}>
@@ -429,7 +466,6 @@ function TerminalUI() {
             <div style={{ width: '100%', maxWidth: '500px' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', alignItems: 'center' }}>
                 
-                {/* QUANTITY SELECTOR */}
                 {account && currentPhase !== 0 && (
                   <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '0.5rem' }}>
                     <div style={{ color: '#A3A3A3', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.1em', textAlign: 'center' }}>
@@ -474,7 +510,9 @@ function TerminalUI() {
                 <select value={selectedOpId || ''} onChange={(e) => setSelectedOpId(e.target.value)} disabled={isProcessingTx} style={{ background: 'rgba(13,13,17,0.9)', color: '#06B6D4', border: '1px solid rgba(255,255,255,0.15)', padding: '10px', marginBottom: '1.5rem', width: '100%', fontFamily: 'inherit', cursor: isProcessingTx ? 'not-allowed' : 'pointer', borderRadius: '2px' }}>
                   {displayOperatives.map((op: any) => {
                     const id = op.data?.objectId || op.address;
-                    return <option key={id} value={id}>OPERATIVE // {id.slice(0, 6)}...{id.slice(-4)}</option>;
+                    const fields = (op.data?.content as any)?.fields;
+                    const loreName = fields?.name || fields?.lore_name || `OPERATIVE // ${id.slice(0, 6)}...${id.slice(-4)}`;
+                    return <option key={id} value={id}>{loreName.toUpperCase()}</option>;
                   })}
                 </select>
               )}
@@ -482,7 +520,18 @@ function TerminalUI() {
               {selectedOpId ? (
                 <div className="hud-frame" style={{ display: 'flex', justifyContent: 'center', width: '100%', borderRadius: '2px' }}>
                   <div className="hud-corner-bottom" />
-                  <LayerStacker />
+                  <div style={{ position: 'relative', width: '380px', height: '380px', margin: '0 auto', background: 'rgba(0,0,0,0.3)' }}>
+                    
+                    {equippedGear['background'] && equippedGear['background'].imageUrl.toLowerCase() !== 'none' && <img src={equippedGear['background'].imageUrl} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'contain', zIndex: 1 }} alt="Background" />}
+                    {baseBodyUrl && baseBodyUrl.toLowerCase() !== 'none' && <img src={baseBodyUrl} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'contain', zIndex: 2 }} alt="Base Body" />}
+                    {equippedGear['outfits'] && equippedGear['outfits'].imageUrl.toLowerCase() !== 'none' && <img src={equippedGear['outfits'].imageUrl} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'contain', zIndex: 3 }} alt="Outfit" />}
+                    {equippedGear['face'] && equippedGear['face'].imageUrl.toLowerCase() !== 'none' && <img src={equippedGear['face'].imageUrl} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'contain', zIndex: 4 }} alt="Face" />}
+                    {equippedGear['eye'] && equippedGear['eye'].imageUrl.toLowerCase() !== 'none' && <img src={equippedGear['eye'].imageUrl} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'contain', zIndex: 5 }} alt="Eye" />}
+                    {equippedGear['jewelries'] && equippedGear['jewelries'].imageUrl.toLowerCase() !== 'none' && <img src={equippedGear['jewelries'].imageUrl} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'contain', zIndex: 6 }} alt="Jewelry" />}
+                    {equippedGear['headwear'] && equippedGear['headwear'].imageUrl.toLowerCase() !== 'none' && <img src={equippedGear['headwear'].imageUrl} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'contain', zIndex: 7 }} alt="Headwear" />}
+                    {equippedGear['eyewear'] && equippedGear['eyewear'].imageUrl.toLowerCase() !== 'none' && <img src={equippedGear['eyewear'].imageUrl} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'contain', zIndex: 8 }} alt="Eyewear" />}
+                    
+                  </div>
                 </div>
               ) : (
                 <div style={{ width: '100%', maxWidth: '380px', height: '380px', border: '1px dashed rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#A3A3A3', margin: '0 auto', background: 'rgba(255,255,255,0.01)', borderRadius: '2px' }}>
@@ -494,13 +543,14 @@ function TerminalUI() {
             <div style={{ width: '100%', maxWidth: '550px' }}>
               <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.1)', padding: '1.5rem', marginBottom: '1.5rem', backdropFilter: 'blur(12px)', borderRadius: '2px' }}>
                 <h3 style={{ margin: '0 0 1rem 0', color: '#06B6D4', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.1em' }}>// EQUIPMENT SLOTS {isLoadingSlots && <span style={{ color: '#E5E5E5' }}>(SYNCING...)</span>}</h3>
-                {['face', 'eye', 'outfits', 'jewelries', 'headwear', 'eyewear'].map((slot) => {
+                
+                {['background', 'face', 'eye', 'outfits', 'jewelries', 'headwear', 'eyewear'].map((slot) => {
                   const isEquipped = !!equippedGear[slot];
                   return (
                     <div key={slot} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                       <div style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         <span style={{ color: isEquipped ? '#E5E5E5' : '#555' }}>[{slot.toUpperCase()}] </span>
-                        <span style={{ color: isEquipped ? '#06B6D4' : '#444', fontSize: '0.85rem' }}>{isEquipped ? equippedGear[slot].imageUrl.replace('.png', '') : 'EMPTY'}</span>
+                        <span style={{ color: isEquipped ? '#06B6D4' : '#444', fontSize: '0.85rem' }}>{isEquipped ? formatTraitName(equippedGear[slot].imageUrl) : 'EMPTY'}</span>
                       </div>
                       {isEquipped && (
                         <button onClick={() => handleUnequip(slot)} disabled={isProcessingTx} style={{ background: 'transparent', color: isProcessingTx ? '#555' : '#ff3333', border: isProcessingTx ? '1px dashed rgba(255,255,255,0.1)' : '1px solid rgba(255,51,51,0.5)', padding: '4px 8px', cursor: isProcessingTx ? 'not-allowed' : 'pointer', fontFamily: 'inherit', fontSize: '0.75rem', borderRadius: '2px' }}>{isProcessingTx ? '[ LOADING ]' : '[ UNEQUIP ]'}</button>
@@ -517,15 +567,17 @@ function TerminalUI() {
                 ) : (
                   looseTraits.data.map((item, idx) => {
                     const fields = (item.data?.content as any)?.fields;
-                    const cat = fields?.category;
-                    const isSlotOccupied = !!equippedGear[cat];
+                    const rawCat = fields?.category || fields?.Category || fields?.name;
+                    const cat = normalizeCategory(rawCat);
+                    const isSlotOccupied = cat ? !!equippedGear[cat] : false;
 
                     return (
                       <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                         <div style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          <span style={{ color: '#E5E5E5' }}>[{cat?.toUpperCase()}]</span> <span style={{ color: '#06B6D4', fontSize: '0.85rem' }}>{fields?.image_url?.replace('.png', '')}</span>
+                          <span style={{ color: '#E5E5E5' }}>[{cat?.toUpperCase()}]</span> 
+                          <span style={{ color: '#06B6D4', fontSize: '0.85rem', marginLeft: '6px' }}>{formatTraitName(fields?.image_url || fields?.url)}</span>
                         </div>
-                        <button onClick={() => handleEquip(item.data!.objectId, cat)} disabled={isSlotOccupied || isProcessingTx} style={{ background: isSlotOccupied ? 'transparent' : (isProcessingTx ? 'rgba(255,255,255,0.05)' : '#E5E5E5'), color: isSlotOccupied ? '#555' : (isProcessingTx ? '#777' : '#0D0D11'), border: isSlotOccupied ? '1px dashed rgba(255,255,255,0.1)' : (isProcessingTx ? '1px solid rgba(255,255,255,0.1)' : '1px solid #E5E5E5'), padding: '4px 8px', cursor: (isSlotOccupied || isProcessingTx) ? 'not-allowed' : 'pointer', fontFamily: 'inherit', fontSize: '0.75rem', borderRadius: '2px', transition: 'all 0.3s ease' }}>
+                        <button onClick={() => cat && handleEquip(item.data!.objectId, cat)} disabled={isSlotOccupied || isProcessingTx || !cat} style={{ background: isSlotOccupied ? 'transparent' : (isProcessingTx ? 'rgba(255,255,255,0.05)' : '#E5E5E5'), color: isSlotOccupied ? '#555' : (isProcessingTx ? '#777' : '#0D0D11'), border: isSlotOccupied ? '1px dashed rgba(255,255,255,0.1)' : (isProcessingTx ? '1px solid rgba(255,255,255,0.1)' : '1px solid #E5E5E5'), padding: '4px 8px', cursor: (isSlotOccupied || isProcessingTx) ? 'not-allowed' : 'pointer', fontFamily: 'inherit', fontSize: '0.75rem', borderRadius: '2px', transition: 'all 0.3s ease' }}>
                           {isSlotOccupied ? 'SLOT BUSY' : (isProcessingTx ? 'LOADING...' : '[ EQUIP ]')}
                         </button>
                       </div>
