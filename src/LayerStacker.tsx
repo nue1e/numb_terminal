@@ -1,115 +1,116 @@
 'use client';
 
-import React, { useRef, useState } from 'react';
+import { useState, useEffect } from 'react';
+import registry from './registry.json';
 
-interface LayerStackerProps {
-  layers: string[];
-}
+// ==========================================
+// THE RESERVE VAULT
+// Add the exact IDs (as numbers) of the 11 Mythics and 100 reserves you want to hold back.
+// Example: [1, 2, 3, 42, 99] 
+// ==========================================
+const RESERVED_IDS: number[] = []; 
 
-export function LayerStacker({ layers }: LayerStackerProps) {
-  const [isExporting, setIsExporting] = useState(false);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+// The engine automatically removes your reserved IDs from the public pool
+const publicRegistry = registry.filter(op => !RESERVED_IDS.includes(Number(op.id)));
 
-  const getSafeUrl = (layerPath: string) => {
-    const parts = layerPath.split('/');
-    const encoded = parts.map((part) => encodeURIComponent(part)).join('/');
-    return `/layers/${encoded}`;
+export function LayerStacker() {
+  // Initialize with a random operative from the public pool
+  const [operative, setOperative] = useState(() => {
+    const randomIndex = Math.floor(Math.random() * publicRegistry.length);
+    return publicRegistry[randomIndex];
+  });
+
+  // Hydrate safely on the client to prevent Next.js/Vite hydration mismatch on random math
+  const [isMounted, setIsMounted] = useState(false);
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  const handleReroll = () => {
+    const randomIndex = Math.floor(Math.random() * publicRegistry.length);
+    setOperative(publicRegistry[randomIndex]);
   };
 
-  const exportCompositeImage = async () => {
-    setIsExporting(true);
-    const canvas = canvasRef.current || document.createElement('canvas');
-    canvas.width = 2000;
-    canvas.height = 2000;
-    const ctx = canvas.getContext('2d');
-
-    if (!ctx) {
-      setIsExporting(false);
-      return;
-    }
-
-    ctx.clearRect(0, 0, 2000, 2000);
-
-    const loadImage = (src: string): Promise<HTMLImageElement> => {
-      return new Promise((resolve, reject) => {
-        const img = new Image();
-        img.crossOrigin = 'anonymous';
-        img.onload = () => resolve(img);
-        img.onerror = () => reject(new Error(`Failed to load: ${src}`));
-        img.src = src;
-      });
-    };
-
-    try {
-      for (const layerPath of layers) {
-        if (layerPath.toLowerCase().includes('none')) continue;
-        const img = await loadImage(getSafeUrl(layerPath));
-        ctx.drawImage(img, 0, 0, 2000, 2000);
-      }
-
-      const dataUrl = canvas.toDataURL('image/png');
-      const downloadLink = document.createElement('a');
-      downloadLink.href = dataUrl;
-      downloadLink.download = `numb_operative_${Date.now()}.png`;
-      downloadLink.click();
-    } catch (err) {
-      console.error('Compositing failed:', err);
-      alert('Could not export composite. Check console for missing images.');
-    } finally {
-      setIsExporting(false);
-    }
-  };
+  if (!isMounted || !operative) {
+    return <div style={{ color: '#A3A3A3', textAlign: 'center', padding: '2rem' }}>BOOTING TERMINAL...</div>;
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%' }}>
-      {/* PREVIEW CONTAINER - RESTORED TO PROPER 380x380 SIZING */}
+      
+      {/* LORE IDENTIFIER (Name Only) */}
+      <div style={{ textAlign: 'center', marginBottom: '16px', width: '100%' }}>
+        <h2 style={{ fontSize: '15px', fontWeight: 'bold', color: '#06B6D4', textTransform: 'uppercase', margin: '0 0 4px 0', letterSpacing: '2px' }}>
+          {operative.lore_name}
+        </h2>
+      </div>
+
+      {/* ENCRYPTED PREVIEW CONTAINER */}
       <div
         style={{
-          position: 'relative',
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'center',
+          alignItems: 'center',
           width: '380px',
           height: '380px',
           background: 'rgba(13, 13, 17, 0.9)',
           border: '1px solid rgba(255, 255, 255, 0.15)',
           backdropFilter: 'blur(12px)',
-          overflow: 'hidden',
           marginBottom: '1rem',
           borderRadius: '2px',
           boxShadow: '0 0 30px rgba(6, 182, 212, 0.08)',
+          position: 'relative',
+          overflow: 'hidden'
         }}
       >
-        {layers.map((layerPath, index) => {
-          if (layerPath.toLowerCase().includes('none')) return null;
-          return (
-            <img
-              key={index}
-              src={getSafeUrl(layerPath)}
-              alt={layerPath}
-              style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                width: '100%',
-                height: '100%',
-                objectFit: 'contain',
-                zIndex: index,
-              }}
-            />
-          );
-        })}
+        {/* THE GHOSTED SILHOUETTE */}
+        <img 
+          src="/assets/Artboard 1q113.png" 
+          alt="Encrypted Construct"
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+            objectFit: 'contain',
+            opacity: 0.15, // Adjust this value (0.1 to 0.3) to make it more or less visible
+            zIndex: 0,
+            pointerEvents: 'none'
+          }}
+        />
+
+        {/* Subtle background scanline effect */}
+        <div style={{
+          position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%)',
+          backgroundSize: '100% 4px',
+          opacity: 0.5,
+          zIndex: 1,
+          pointerEvents: 'none'
+        }} />
+
+        {/* TEXT OVERLAYS */}
+        <div style={{ color: '#A3A3A3', fontSize: '13px', letterSpacing: '0.2em', textTransform: 'uppercase', zIndex: 2, textShadow: '0 0 10px rgba(163,163,163,0.3)' }}>
+          [ VISUAL DATA ENCRYPTED ]
+        </div>
+        <div style={{ color: '#06B6D4', fontSize: '10px', letterSpacing: '0.1em', marginTop: '1.5rem', opacity: 0.5, zIndex: 2 }}>
+          AWAITING ON-CHAIN DEPLOYMENT
+        </div>
       </div>
 
-      {/* EXPORT BUTTON */}
-      <button
-        onClick={exportCompositeImage}
-        disabled={isExporting}
+      {/* SINGLE REROLL BUTTON */}
+      <button 
+        onClick={handleReroll}
         style={{
           display: 'block',
           width: '380px',
           padding: '12px',
-          background: isExporting ? 'rgba(255,255,255,0.05)' : 'rgba(255, 255, 255, 0.03)',
-          color: isExporting ? '#777' : '#E5E5E5',
+          background: 'rgba(255, 255, 255, 0.03)',
+          color: '#E5E5E5',
           border: '1px solid rgba(255, 255, 255, 0.15)',
-          cursor: isExporting ? 'not-allowed' : 'pointer',
+          cursor: 'pointer',
           fontFamily: 'inherit',
           fontWeight: '500',
           fontSize: '11px',
@@ -118,8 +119,16 @@ export function LayerStacker({ layers }: LayerStackerProps) {
           borderRadius: '2px',
           transition: 'all 0.3s ease',
         }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.08)';
+          e.currentTarget.style.borderColor = 'rgba(6, 182, 212, 0.5)';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.03)';
+          e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.15)';
+        }}
       >
-        {isExporting ? 'COMPOSITING 2000x2000...' : '⬇ EXPORT COMPOSITE PNG'}
+        ⟳ RANDOMLY RE-ROLL CONSTRUCT
       </button>
     </div>
   );

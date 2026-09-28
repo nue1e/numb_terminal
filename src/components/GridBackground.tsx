@@ -24,10 +24,11 @@ const fragmentShader = `
 
   void main() {
     // 1. GENTLE SHADOW DRIFT (Slow, continuous motion without causing dizziness)
+    // CRITICAL FIX: Pass the panning UV directly. WebGL's native RepeatWrapping 
+    // handles the infinite loop without the math spikes caused by fract().
     vec2 panningUv = vUv + vec2(uTime * 0.007, uTime * 0.004);
-    vec2 finalUv = fract(panningUv);
 
-    vec4 texColor = texture2D(uTexture, finalUv);
+    vec4 texColor = texture2D(uTexture, panningUv);
 
     // 2. RADIAL COVER & VERTICAL SHADOW FALLOFF
     // Normalized screen coordinates (-0.5 to 0.5)
@@ -66,7 +67,14 @@ export default function GridBackground() {
   const { viewport } = useThree();
 
   const texture = useTexture('./assets/grid.webp') as THREE.Texture;
-  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  
+  // ANTI-BLEED FIX: Disable mipmaps so the GPU doesn't bleed pixels across texture wrap boundaries
+  texture.generateMipmaps = false;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.needsUpdate = true;
 
   const targetMouse = useRef(new THREE.Vector2(999.0, 999.0));
   const currentMouse = useRef(new THREE.Vector2(999.0, 999.0));
