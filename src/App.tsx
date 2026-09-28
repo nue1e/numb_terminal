@@ -146,7 +146,6 @@ function TerminalUI() {
     setEquippedGear({}); 
 
     try {
-      await new Promise(resolve => setTimeout(resolve, 1000));
       const dynamicFields = await retryRpc(() => suiClient.getDynamicFields({ parentId: opId }));
       if (activeLoadRef.current !== opId) return;
 
@@ -154,7 +153,6 @@ function TerminalUI() {
 
       if (dynamicFields.data.length > 0) {
         const traitIds = dynamicFields.data.map(field => field.objectId);
-        await new Promise(resolve => setTimeout(resolve, 500));
         
         const childObjects = await retryRpc(() => suiClient.multiGetObjects({
           ids: traitIds,
@@ -163,19 +161,32 @@ function TerminalUI() {
 
         if (activeLoadRef.current !== opId) return;
 
+        const imagePromises: Promise<void>[] = [];
+
         for (const childObject of childObjects) {
           const traitData = (childObject.data?.content as any)?.fields;
           const rawCat = traitData?.category || traitData?.Category || traitData?.name;
           const rawUrl = traitData?.image_url || traitData?.url || traitData?.image;
           
-          if (rawCat && rawUrl) {
+          if (rawCat && rawUrl && rawUrl.toLowerCase() !== 'none') {
             const cleanCat = normalizeCategory(rawCat);
             gearMap[cleanCat] = {
               objectId: childObject.data!.objectId,
               imageUrl: rawUrl,
             };
+
+            imagePromises.push(
+              new Promise((resolve) => {
+                const img = new Image();
+                img.src = rawUrl;
+                img.onload = () => resolve();
+                img.onerror = () => resolve();
+              })
+            );
           }
         }
+
+        await Promise.all(imagePromises);
       }
 
       if (activeLoadRef.current === opId) {
@@ -523,13 +534,13 @@ function TerminalUI() {
                   <div style={{ position: 'relative', width: '380px', height: '380px', margin: '0 auto', background: 'rgba(0,0,0,0.3)' }}>
                     
                     {equippedGear['background'] && equippedGear['background'].imageUrl.toLowerCase() !== 'none' && <img src={equippedGear['background'].imageUrl} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'contain', zIndex: 1 }} alt="Background" />}
-{baseBodyUrl && baseBodyUrl.toLowerCase() !== 'none' && <img src={baseBodyUrl} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'contain', zIndex: 2 }} alt="Base Body" />}
-{equippedGear['outfits'] && equippedGear['outfits'].imageUrl.toLowerCase() !== 'none' && <img src={equippedGear['outfits'].imageUrl} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'contain', zIndex: 3 }} alt="Outfit" />}
-{equippedGear['face'] && equippedGear['face'].imageUrl.toLowerCase() !== 'none' && <img src={equippedGear['face'].imageUrl} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'contain', zIndex: 4 }} alt="Face" />}
-{equippedGear['eye'] && equippedGear['eye'].imageUrl.toLowerCase() !== 'none' && <img src={equippedGear['eye'].imageUrl} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'contain', zIndex: 5 }} alt="Eye" />}
-{equippedGear['jewelries'] && equippedGear['jewelries'].imageUrl.toLowerCase() !== 'none' && <img src={equippedGear['jewelries'].imageUrl} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'contain', zIndex: 6 }} alt="Jewelry" />}
-{equippedGear['eyewear'] && equippedGear['eyewear'].imageUrl.toLowerCase() !== 'none' && <img src={equippedGear['eyewear'].imageUrl} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'contain', zIndex: 7 }} alt="Eyewear" />}
-{equippedGear['headwear'] && equippedGear['headwear'].imageUrl.toLowerCase() !== 'none' && <img src={equippedGear['headwear'].imageUrl} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'contain', zIndex: 8 }} alt="Headwear" />}
+                    {baseBodyUrl && baseBodyUrl.toLowerCase() !== 'none' && <img src={baseBodyUrl} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'contain', zIndex: 2 }} alt="Base Body" />}
+                    {equippedGear['outfits'] && equippedGear['outfits'].imageUrl.toLowerCase() !== 'none' && <img src={equippedGear['outfits'].imageUrl} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'contain', zIndex: 3 }} alt="Outfit" />}
+                    {equippedGear['face'] && equippedGear['face'].imageUrl.toLowerCase() !== 'none' && <img src={equippedGear['face'].imageUrl} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'contain', zIndex: 4 }} alt="Face" />}
+                    {equippedGear['eye'] && equippedGear['eye'].imageUrl.toLowerCase() !== 'none' && <img src={equippedGear['eye'].imageUrl} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'contain', zIndex: 5 }} alt="Eye" />}
+                    {equippedGear['jewelries'] && equippedGear['jewelries'].imageUrl.toLowerCase() !== 'none' && <img src={equippedGear['jewelries'].imageUrl} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'contain', zIndex: 6 }} alt="Jewelry" />}
+                    {equippedGear['eyewear'] && equippedGear['eyewear'].imageUrl.toLowerCase() !== 'none' && <img src={equippedGear['eyewear'].imageUrl} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'contain', zIndex: 7 }} alt="Eyewear" />}
+                    {equippedGear['headwear'] && equippedGear['headwear'].imageUrl.toLowerCase() !== 'none' && <img src={equippedGear['headwear'].imageUrl} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'contain', zIndex: 8 }} alt="Headwear" />}
                     
                   </div>
                 </div>
