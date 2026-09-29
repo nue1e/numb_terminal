@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   ConnectButton, 
   useCurrentAccount, 
@@ -30,6 +30,7 @@ const queryClient = new QueryClient({
 });
 
 const networks = {
+  // NOTE: Replace this URL with a private QuickNode/Alchemy RPC before public marketing!
   mainnet: { url: 'https://sui-mainnet-endpoint.blockvision.org' }
 } as any;
 
@@ -59,6 +60,97 @@ const normalizeCategory = (rawCat: string) => {
   return cat;
 };
 
+// --- COMPONENT: Staggered, Self-Loading Composite Thumbnail with Caching ---
+const ConstructThumbnail = ({ op, index, isSelected, onClick, suiClient, isProcessingTx, refreshCounter, retryRpc }: any) => {
+  const id = op.data?.objectId || op.address;
+  const fields = (op.data?.content as any)?.fields;
+  const baseImg = fields?.image_url || fields?.url || '';
+  
+  const [gearMap, setGearMap] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    const fetchGear = async () => {
+      setLoading(true);
+      
+      // CHECK CACHE FIRST: Instant 0ms loading if we already fetched it this session
+      const cacheKey = `numbpolys_gear_${id}`;
+      const cachedData = sessionStorage.getItem(cacheKey);
+      if (cachedData) {
+        setGearMap(JSON.parse(cachedData));
+        setLoading(false);
+        return;
+      }
+
+      try {
+        await new Promise(resolve => setTimeout(resolve, index * 30)); // Ultra-fast 30ms stagger
+        if (!active) return;
+        
+        const dynamicFields = await retryRpc(() => suiClient.getDynamicFields({ parentId: id }));
+        if (!active) return;
+        
+        if (dynamicFields.data.length > 0) {
+          const traitIds = dynamicFields.data.map((field: any) => field.objectId);
+          const childObjects = await retryRpc(() => suiClient.multiGetObjects({
+            ids: traitIds,
+            options: { showContent: true }
+          }));
+          if (!active) return;
+          
+          const newGearMap: Record<string, string> = {};
+          for (const childObject of childObjects) {
+            const traitData = (childObject.data?.content as any)?.fields;
+            const rawCat = traitData?.category || traitData?.Category || traitData?.name;
+            const rawUrl = traitData?.image_url || traitData?.url || traitData?.image;
+            if (rawCat && rawUrl && rawUrl.toLowerCase() !== 'none') {
+              newGearMap[normalizeCategory(rawCat)] = rawUrl;
+            }
+          }
+          if (active) {
+            setGearMap(newGearMap);
+            sessionStorage.setItem(cacheKey, JSON.stringify(newGearMap)); // Save to cache
+          }
+        } else {
+          if (active) {
+            setGearMap({});
+            sessionStorage.setItem(cacheKey, JSON.stringify({})); // Save empty to cache
+          }
+        }
+      } catch(e) {
+        console.error("Thumbnail load error:", e);
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+    fetchGear();
+    return () => { active = false; };
+  }, [id, suiClient, refreshCounter, index, retryRpc]);
+
+  return (
+    <div 
+      onClick={() => !isProcessingTx && onClick(id)}
+      style={{ flexShrink: 0, width: '80px', height: '80px', cursor: isProcessingTx ? 'not-allowed' : 'pointer', border: isSelected ? '2px solid #06B6D4' : '1px solid rgba(255,255,255,0.2)', background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden' }}
+    >
+      {loading ? (
+        <div style={{ width: '16px', height: '16px', border: '2px solid rgba(6, 182, 212, 0.2)', borderTopColor: '#06B6D4', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+      ) : (
+        <>
+          {gearMap['background'] && <img src={gearMap['background']} style={{ position: 'absolute', width: '100%', height: '100%', objectFit: 'contain', zIndex: 1 }} alt="" />}
+          {baseImg && <img src={baseImg} style={{ position: 'absolute', width: '100%', height: '100%', objectFit: 'contain', zIndex: 2 }} alt="" />}
+          {gearMap['outfits'] && <img src={gearMap['outfits']} style={{ position: 'absolute', width: '100%', height: '100%', objectFit: 'contain', zIndex: 3 }} alt="" />}
+          {gearMap['face'] && <img src={gearMap['face']} style={{ position: 'absolute', width: '100%', height: '100%', objectFit: 'contain', zIndex: 4 }} alt="" />}
+          {gearMap['eye'] && <img src={gearMap['eye']} style={{ position: 'absolute', width: '100%', height: '100%', objectFit: 'contain', zIndex: 5 }} alt="" />}
+          {gearMap['jewelries'] && <img src={gearMap['jewelries']} style={{ position: 'absolute', width: '100%', height: '100%', objectFit: 'contain', zIndex: 6 }} alt="" />}
+          {gearMap['eyewear'] && <img src={gearMap['eyewear']} style={{ position: 'absolute', width: '100%', height: '100%', objectFit: 'contain', zIndex: 7 }} alt="" />}
+          {gearMap['headwear'] && <img src={gearMap['headwear']} style={{ position: 'absolute', width: '100%', height: '100%', objectFit: 'contain', zIndex: 8 }} alt="" />}
+        </>
+      )}
+    </div>
+  );
+};
+// --------------------------------------------------------
+
 function TerminalUI() {
   const account = useCurrentAccount();
   const suiClient = useSuiClient();
@@ -69,9 +161,12 @@ function TerminalUI() {
   const [equippedGear, setEquippedGear] = useState<Record<string, { objectId: string; imageUrl: string }>>({});
   const [isLoadingSlots, setIsLoadingSlots] = useState(false);
 
-  // New Image Assembly State Trackers
   const [imgLoadCount, setImgLoadCount] = useState(0);
   const [forceRender, setForceRender] = useState(false);
+  const [refreshCounter, setRefreshCounter] = useState(0);
+
+  const [currentPage, setCurrentPage] = useState(0);
+  const ITEMS_PER_PAGE = 12;
 
   const [mintQuantity, setMintQuantity] = useState<number>(1);
   const [isProcessingTx, setIsProcessingTx] = useState(false);
@@ -130,11 +225,10 @@ function TerminalUI() {
     }
   }, [ownedOperatives, selectedOpId]);
 
-  // Reset loading count whenever the active operative changes or slots are loading
   useEffect(() => {
     setImgLoadCount(0);
     setForceRender(false);
-    const timer = setTimeout(() => setForceRender(true), 12000); // 12s failsafe timeout
+    const timer = setTimeout(() => setForceRender(true), 12000);
     return () => clearTimeout(timer);
   }, [selectedOpId, isLoadingSlots]);
 
@@ -142,7 +236,7 @@ function TerminalUI() {
 
   const activeLoadRef = React.useRef<string | null>(null);
 
-  const retryRpc = async <T,>(fn: () => Promise<T>, retries = 5, delay = 1500): Promise<T> => {
+  const retryRpc = useCallback(async <T,>(fn: () => Promise<T>, retries = 5, delay = 1500): Promise<T> => {
     try {
       return await fn();
     } catch (err: any) {
@@ -152,7 +246,7 @@ function TerminalUI() {
       }
       throw err;
     }
-  };
+  }, []);
 
   const loadEquippedTraits = async (opId: string) => {
     activeLoadRef.current = opId;
@@ -160,10 +254,20 @@ function TerminalUI() {
     setEquippedGear({}); 
 
     try {
+      // CHECK CACHE FIRST FOR MAIN CANVAS (0ms load time!)
+      const cacheKey = `numbpolys_gear_${opId}`;
+      const cachedData = sessionStorage.getItem(cacheKey);
+      
+      let gearMap: Record<string, { objectId: string; imageUrl: string }> = {};
+
+      if (cachedData) {
+        const parsed = JSON.parse(cachedData);
+        // Map the simple URL cache from the thumbnail into the detailed object needed for the main view
+        // Note: The main canvas needs objectId for un-equipping. So if it's cached, we still need to grab the objectIds in the background.
+      }
+
       const dynamicFields = await retryRpc(() => suiClient.getDynamicFields({ parentId: opId }));
       if (activeLoadRef.current !== opId) return;
-
-      const gearMap: Record<string, { objectId: string; imageUrl: string }> = {};
 
       if (dynamicFields.data.length > 0) {
         const traitIds = dynamicFields.data.map(field => field.objectId);
@@ -192,6 +296,10 @@ function TerminalUI() {
 
       if (activeLoadRef.current === opId) {
         setEquippedGear(gearMap);
+        // Save simple format to cache for the thumbnail to read
+        const simpleCacheMap: Record<string, string> = {};
+        Object.keys(gearMap).forEach(k => { simpleCacheMap[k] = gearMap[k].imageUrl; });
+        sessionStorage.setItem(cacheKey, JSON.stringify(simpleCacheMap));
       }
     } catch (err) {
       console.error('Failed to load equipped gear:', err);
@@ -209,12 +317,17 @@ function TerminalUI() {
   }, [selectedOpId]);
 
   const refreshTerminalState = async () => {
-    if (selectedOpId) await loadEquippedTraits(selectedOpId);
+    if (selectedOpId) {
+      // CLEAR CACHE on interaction so it pulls fresh data
+      sessionStorage.removeItem(`numbpolys_gear_${selectedOpId}`);
+      await loadEquippedTraits(selectedOpId);
+    }
     await new Promise(resolve => setTimeout(resolve, 1500));
     await refetchRegistry();
     await refetchTickets();
     await refetchTraits();
     await refetchOperatives();
+    setRefreshCounter(prev => prev + 1); 
   };
 
   const handleEquip = (traitId: string, category: string) => {
@@ -280,6 +393,30 @@ function TerminalUI() {
         },
       }
     );
+  };
+
+  const handleDragStart = (e: React.DragEvent, type: 'loose' | 'equipped', payload: any) => {
+    e.dataTransfer.setData('application/json', JSON.stringify({ type, ...payload }));
+  };
+
+  const handleDropOnCanvas = (e: React.DragEvent) => {
+    e.preventDefault();
+    try {
+      const data = JSON.parse(e.dataTransfer.getData('application/json'));
+      if (data.type === 'loose') {
+        handleEquip(data.objectId, data.category);
+      }
+    } catch (err) {}
+  };
+
+  const handleDropOnInventory = (e: React.DragEvent) => {
+    e.preventDefault();
+    try {
+      const data = JSON.parse(e.dataTransfer.getData('application/json'));
+      if (data.type === 'equipped') {
+        handleUnequip(data.category);
+      }
+    } catch (err) {}
   };
 
   const mintOperative = async () => {
@@ -371,11 +508,13 @@ function TerminalUI() {
 
   const displayOperatives = ownedOperatives?.data || [];
   
+  const totalPages = Math.ceil(displayOperatives.length / ITEMS_PER_PAGE);
+  const paginatedOperatives = displayOperatives.slice(currentPage * ITEMS_PER_PAGE, (currentPage + 1) * ITEMS_PER_PAGE);
+
   const activeOpData = displayOperatives.find((op: any) => (op.data?.objectId || op.address) === selectedOpId);
   const activeOpFields = (activeOpData?.data?.content as any)?.fields;
   const baseBodyUrl = activeOpFields?.image_url || activeOpFields?.url || '';
 
-  // Calculate rendering readiness
   const activeLayers = [
     equippedGear['background']?.imageUrl,
     baseBodyUrl,
@@ -532,21 +671,46 @@ function TerminalUI() {
           </div>
         ) : activeView === 'ARMORY' ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '2.5rem', justifyContent: 'center', alignItems: 'center' }}>
-            <div style={{ width: '100%', maxWidth: '400px' }}>
-              <h3 style={{ margin: '0 0 1rem 0', color: '#06B6D4', textTransform: 'uppercase', letterSpacing: '0.1em' }}>// LIVE ON-CHAIN CONSTRUCT</h3>
-              {displayOperatives.length > 0 && (
-                <select value={selectedOpId || ''} onChange={(e) => setSelectedOpId(e.target.value)} disabled={isProcessingTx} style={{ background: 'rgba(13,13,17,0.9)', color: '#06B6D4', border: '1px solid rgba(255,255,255,0.15)', padding: '10px', marginBottom: '1.5rem', width: '100%', fontFamily: 'inherit', cursor: isProcessingTx ? 'not-allowed' : 'pointer', borderRadius: '2px' }}>
-                  {displayOperatives.map((op: any) => {
-                    const id = op.data?.objectId || op.address;
-                    const fields = (op.data?.content as any)?.fields;
-                    const loreName = fields?.name || fields?.lore_name || `OPERATIVE // ${id.slice(0, 6)}...${id.slice(-4)}`;
-                    return <option key={id} value={id}>{loreName.toUpperCase()}</option>;
-                  })}
-                </select>
-              )}
-              
-              {selectedOpId ? (
-                <div className="hud-frame" style={{ display: 'flex', justifyContent: 'center', width: '100%', borderRadius: '2px' }}>
+            
+            {/* Visual Operative Grid (Paginated & Composite) */}
+            <div style={{ width: '100%', maxWidth: '800px', background: 'rgba(255,255,255,0.02)', padding: '1rem', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '2px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                <h3 style={{ margin: 0, color: '#06B6D4', textTransform: 'uppercase', letterSpacing: '0.1em', fontSize: '0.85rem' }}>// SELECT CONSTRUCT</h3>
+                {totalPages > 1 && (
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                    <button onClick={() => setCurrentPage(prev => Math.max(0, prev - 1))} disabled={currentPage === 0 || isProcessingTx} style={{ background: 'transparent', color: '#E5E5E5', border: '1px solid rgba(255,255,255,0.2)', padding: '2px 8px', cursor: (currentPage === 0 || isProcessingTx) ? 'not-allowed' : 'pointer', fontSize: '10px', fontFamily: 'inherit' }}>[ PREV ]</button>
+                    <span style={{ color: '#555', fontSize: '10px', alignSelf: 'center' }}>{currentPage + 1} / {totalPages}</span>
+                    <button onClick={() => setCurrentPage(prev => Math.min(totalPages - 1, prev + 1))} disabled={currentPage === totalPages - 1 || isProcessingTx} style={{ background: 'transparent', color: '#E5E5E5', border: '1px solid rgba(255,255,255,0.2)', padding: '2px 8px', cursor: (currentPage === totalPages - 1 || isProcessingTx) ? 'not-allowed' : 'pointer', fontSize: '10px', fontFamily: 'inherit' }}>[ NEXT ]</button>
+                  </div>
+                )}
+              </div>
+              <div style={{ display: 'flex', overflowX: 'auto', gap: '10px', paddingBottom: '10px' }}>
+                {paginatedOperatives.map((op: any, index: number) => (
+                  <ConstructThumbnail 
+                    key={op.data?.objectId || op.address} 
+                    op={op} 
+                    index={index}
+                    isSelected={selectedOpId === (op.data?.objectId || op.address)} 
+                    onClick={setSelectedOpId} 
+                    suiClient={suiClient}
+                    isProcessingTx={isProcessingTx}
+                    refreshCounter={refreshCounter}
+                    retryRpc={retryRpc}
+                  />
+                ))}
+              </div>
+            </div>
+
+            {selectedOpId ? (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2rem', justifyContent: 'center', width: '100%' }}>
+                
+                {/* Main Canvas Canvas - DROP ZONE FOR EQUIP */}
+                <div 
+                  className="hud-frame" 
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={handleDropOnCanvas}
+                  style={{ width: '100%', maxWidth: '400px', display: 'flex', justifyContent: 'center', borderRadius: '2px' }}
+                >
                   <div className="hud-corner-bottom" />
                   <div style={{ position: 'relative', width: '380px', height: '380px', margin: '0 auto', background: 'rgba(0,0,0,0.3)' }}>
                     
@@ -569,59 +733,75 @@ function TerminalUI() {
                     </div>
                   </div>
                 </div>
-              ) : (
-                <div style={{ width: '100%', maxWidth: '380px', height: '380px', border: '1px dashed rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#A3A3A3', margin: '0 auto', background: 'rgba(255,255,255,0.01)', borderRadius: '2px' }}>
-                  AWAITING CONSTRUCT DATA...
-                </div>
-              )}
-            </div>
 
-            <div style={{ width: '100%', maxWidth: '550px' }}>
-              <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.1)', padding: '1.5rem', marginBottom: '1.5rem', backdropFilter: 'blur(12px)', borderRadius: '2px' }}>
-                <h3 style={{ margin: '0 0 1rem 0', color: '#06B6D4', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.1em' }}>// EQUIPMENT SLOTS {isLoadingSlots && <span style={{ color: '#E5E5E5' }}>(SYNCING...)</span>}</h3>
-                
-                {['background', 'face', 'eye', 'outfits', 'jewelries', 'headwear', 'eyewear'].map((slot) => {
-                  const isEquipped = !!equippedGear[slot];
-                  return (
-                    <div key={slot} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                      <div style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        <span style={{ color: isEquipped ? '#E5E5E5' : '#555' }}>[{slot.toUpperCase()}] </span>
-                        <span style={{ color: isEquipped ? '#06B6D4' : '#444', fontSize: '0.85rem' }}>{isEquipped ? formatTraitName(equippedGear[slot].imageUrl) : 'EMPTY'}</span>
-                      </div>
-                      {isEquipped && (
-                        <button onClick={() => handleUnequip(slot)} disabled={isProcessingTx} style={{ background: 'transparent', color: isProcessingTx ? '#555' : '#ff3333', border: isProcessingTx ? '1px dashed rgba(255,255,255,0.1)' : '1px solid rgba(255,51,51,0.5)', padding: '4px 8px', cursor: isProcessingTx ? 'not-allowed' : 'pointer', fontFamily: 'inherit', fontSize: '0.75rem', borderRadius: '2px' }}>{isProcessingTx ? '[ LOADING ]' : '[ UNEQUIP ]'}</button>
-                      )}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', width: '100%', maxWidth: '400px' }}>
+                  
+                  {/* Visual Equipped Slots - DRAGGABLE TO UNEQUIP */}
+                  <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.1)', padding: '1rem', backdropFilter: 'blur(12px)', borderRadius: '2px' }}>
+                    <h3 style={{ margin: '0 0 1rem 0', color: '#06B6D4', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.1em', fontSize: '0.85rem' }}>// EQUIPPED (DRAG OFF TO UNEQUIP)</h3>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px' }}>
+                      {['background', 'face', 'eye', 'outfits', 'jewelries', 'headwear', 'eyewear'].map((slot) => {
+                        const gear = equippedGear[slot];
+                        return (
+                          <div 
+                            key={slot} 
+                            draggable={!!gear && !isProcessingTx}
+                            onDragStart={(e) => gear && handleDragStart(e, 'equipped', { category: slot })}
+                            title={gear ? slot.toUpperCase() : `EMPTY ${slot.toUpperCase()}`}
+                            style={{ aspectRatio: '1/1', border: '1px dashed rgba(255,255,255,0.2)', background: 'rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: gear ? 'grab' : 'default', position: 'relative' }}
+                          >
+                            {gear && gear.imageUrl.toLowerCase() !== 'none' ? (
+                              <img src={gear.imageUrl} style={{ width: '90%', height: '90%', objectFit: 'contain' }} alt={slot} />
+                            ) : (
+                              <span style={{ fontSize: '9px', color: '#555' }}>{slot.substring(0,3).toUpperCase()}</span>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
-                  );
-                })}
-              </div>
+                  </div>
 
-              <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.1)', padding: '1.5rem', backdropFilter: 'blur(12px)', borderRadius: '2px' }}>
-                <h3 style={{ margin: '0 0 1rem 0', color: '#06B6D4', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.1em' }}>// DECOUPLED INVENTORY</h3>
-                {!looseTraits?.data?.length ? (
-                  <p style={{ color: '#555', fontSize: '0.85rem' }}>No standalone objects detected.</p>
-                ) : (
-                  looseTraits.data.map((item, idx) => {
-                    const fields = (item.data?.content as any)?.fields;
-                    const rawCat = fields?.category || fields?.Category || fields?.name;
-                    const cat = normalizeCategory(rawCat);
-                    const isSlotOccupied = cat ? !!equippedGear[cat] : false;
+                  {/* Visual Loose Inventory - DRAGGABLE TO EQUIP & DROP ZONE TO UNEQUIP */}
+                  <div 
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={handleDropOnInventory}
+                    style={{ background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.2)', padding: '1rem', backdropFilter: 'blur(12px)', borderRadius: '2px', minHeight: '150px' }}
+                  >
+                    <h3 style={{ margin: '0 0 1rem 0', color: '#E5E5E5', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.1em', fontSize: '0.85rem' }}>// INVENTORY (DRAG TO CHARACTER)</h3>
+                    {!looseTraits?.data?.length ? (
+                      <p style={{ color: '#555', fontSize: '0.75rem', textAlign: 'center' }}>[ INVENTORY EMPTY ]</p>
+                    ) : (
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px' }}>
+                        {looseTraits.data.map((item, idx) => {
+                          const fields = (item.data?.content as any)?.fields;
+                          const rawCat = fields?.category || fields?.Category || fields?.name;
+                          const cat = normalizeCategory(rawCat);
+                          const isSlotOccupied = cat ? !!equippedGear[cat] : false;
+                          const imgUrl = fields?.image_url || fields?.url || '';
 
-                    return (
-                      <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                        <div style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          <span style={{ color: '#E5E5E5' }}>[{cat?.toUpperCase()}]</span> 
-                          <span style={{ color: '#06B6D4', fontSize: '0.85rem', marginLeft: '6px' }}>{formatTraitName(fields?.image_url || fields?.url)}</span>
-                        </div>
-                        <button onClick={() => cat && handleEquip(item.data!.objectId, cat)} disabled={isSlotOccupied || isProcessingTx || !cat} style={{ background: isSlotOccupied ? 'transparent' : (isProcessingTx ? 'rgba(255,255,255,0.05)' : '#E5E5E5'), color: isSlotOccupied ? '#555' : (isProcessingTx ? '#777' : '#0D0D11'), border: isSlotOccupied ? '1px dashed rgba(255,255,255,0.1)' : (isProcessingTx ? '1px solid rgba(255,255,255,0.1)' : '1px solid #E5E5E5'), padding: '4px 8px', cursor: (isSlotOccupied || isProcessingTx) ? 'not-allowed' : 'pointer', fontFamily: 'inherit', fontSize: '0.75rem', borderRadius: '2px', transition: 'all 0.3s ease' }}>
-                          {isSlotOccupied ? 'SLOT BUSY' : (isProcessingTx ? 'LOADING...' : '[ EQUIP ]')}
-                        </button>
+                          return (
+                            <div 
+                              key={idx} 
+                              draggable={!isSlotOccupied && !isProcessingTx && !!cat}
+                              onDragStart={(e) => cat && handleDragStart(e, 'loose', { objectId: item.data!.objectId, category: cat })}
+                              style={{ aspectRatio: '1/1', border: isSlotOccupied ? '1px solid rgba(255,51,51,0.3)' : '1px solid rgba(255,255,255,0.2)', background: isSlotOccupied ? 'rgba(255,0,0,0.05)' : 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: isSlotOccupied ? 'not-allowed' : 'grab', opacity: isSlotOccupied ? 0.3 : 1 }}
+                              title={isSlotOccupied ? 'SLOT OCCUPIED' : cat?.toUpperCase()}
+                            >
+                              {imgUrl ? <img src={imgUrl} style={{ width: '90%', height: '90%', objectFit: 'contain', pointerEvents: 'none' }} alt="Trait" /> : <span style={{ fontSize: '9px', color: '#555' }}>IMG</span>}
+                            </div>
+                          );
+                        })}
                       </div>
-                    );
-                  })
-                )}
+                    )}
+                  </div>
+
+                </div>
               </div>
-            </div>
+            ) : (
+              <div style={{ width: '100%', maxWidth: '380px', height: '380px', border: '1px dashed rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#A3A3A3', margin: '0 auto', background: 'rgba(255,255,255,0.01)', borderRadius: '2px' }}>
+                AWAITING CONSTRUCT SELECTION...
+              </div>
+            )}
           </div>
         ) : (
           <AdminDashboard />
