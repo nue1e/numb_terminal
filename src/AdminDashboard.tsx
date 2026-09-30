@@ -5,7 +5,7 @@ import {
   useSuiClientQuery
 } from '@mysten/dapp-kit';
 import { Transaction } from '@mysten/sui/transactions';
-import { PACKAGE_ID, REGISTRY_ID, ADMIN_CAP_ID } from './config';
+import { LATEST_PACKAGE_ID, REGISTRY_ID, ADMIN_CAP_ID } from './config';
 import registryData from './registry.json';
 
 export function AdminDashboard() {
@@ -49,7 +49,7 @@ export function AdminDashboard() {
 
     const tx = new Transaction();
     tx.moveCall({
-      target: `${PACKAGE_ID}::operative::update_phase`,
+      target: `${LATEST_PACKAGE_ID}::operative::update_phase`,
       arguments: [
         tx.object(ADMIN_CAP_ID),
         tx.object(REGISTRY_ID),
@@ -84,7 +84,7 @@ export function AdminDashboard() {
 
     const tx = new Transaction();
     tx.moveCall({
-      target: `${PACKAGE_ID}::operative::update_price`,
+      target: `${LATEST_PACKAGE_ID}::operative::update_price`,
       arguments: [
         tx.object(ADMIN_CAP_ID),
         tx.object(REGISTRY_ID),
@@ -113,7 +113,7 @@ export function AdminDashboard() {
 
     const tx = new Transaction();
     tx.moveCall({
-      target: `${PACKAGE_ID}::operative::withdraw_funds`,
+      target: `${LATEST_PACKAGE_ID}::operative::withdraw_funds`,
       arguments: [
         tx.object(ADMIN_CAP_ID),
         tx.object(REGISTRY_ID)
@@ -167,7 +167,7 @@ export function AdminDashboard() {
     for (const item of airdropList) {
       for (let i = 0; i < item.count; i++) {
         tx.moveCall({
-          target: `${PACKAGE_ID}::operative::issue_whitelist_ticket`,
+          target: `${LATEST_PACKAGE_ID}::operative::issue_whitelist_ticket`,
           arguments: [
             tx.object(ADMIN_CAP_ID),
             tx.pure.address(item.address)
@@ -217,7 +217,7 @@ export function AdminDashboard() {
       });
 
       tx.moveCall({
-        target: `${PACKAGE_ID}::operative::claim_reserve`,
+        target: `${LATEST_PACKAGE_ID}::operative::claim_reserve`,
         arguments: [
           tx.object(ADMIN_CAP_ID),
           tx.object(REGISTRY_ID),
