@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
-import { 
-  useCurrentAccount, 
+import { useState } from 'react';
+import {
+  useCurrentAccount,
   useSignAndExecuteTransaction,
   useSuiClientQuery
 } from '@mysten/dapp-kit';
@@ -39,7 +39,7 @@ export function AdminDashboard() {
     setTimeout(() => setTxMessage(null), 12000);
   };
 
-  const { data: registryObj, refetch: refetchRegistry, isLoading, isError } = useSuiClientQuery(
+  const { data: registryObj, refetch: refetchRegistry } = useSuiClientQuery(
     'getObject', { id: REGISTRY_ID, options: { showContent: true } }
   );
 
@@ -68,7 +68,7 @@ export function AdminDashboard() {
       arguments: [tx.object(ADMIN_CAP_ID)],
     });
     signAndExecuteTransaction({ transaction: tx }, {
-      onSuccess: (result) => {
+      onSuccess: () => {
         displayMessage(`[ SUCCESS: V3 STATE CREATED. CHECK EXPLORER FOR NEW OBJECT ID ]`);
         setIsProcessing(false);
       },
