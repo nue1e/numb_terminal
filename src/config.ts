@@ -3,7 +3,10 @@ export const NETWORK = "mainnet";
 export const ORIGINAL_PACKAGE_ID = "0x707cb9b591cce322a918d766879ad599f2875b6062c43ea3c2f16cf30dff6247";
 
 // The current logic engine. Use this strictly for executing tx.moveCall (equip/unequip/sync).
-export const LATEST_PACKAGE_ID = "0xc7cb3b0ae2cd221ae190f02027a0e050beb5ffe7f7880f713fe898cdebf007e8";
+export const LATEST_PACKAGE_ID = "0x4b254bb4146094f1214106f7be8b5cfffd59e5a0f2a89f22ae3eef024d2fda0e";
+
+
+export const V3_STATE_ID = "0xfd55baf81f20f8410ef145d533da580386864116e6dfc971b19dbd99df42e0e7";
 
 // The global tracker/treasury object created during initialization
 // (Ensure you paste your actual MintRegistry object ID here from your V1 deployment)

@@ -11,12 +11,14 @@ import {
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Transaction } from '@mysten/sui/transactions';
 import { Canvas } from '@react-three/fiber';
-import { ORIGINAL_PACKAGE_ID, LATEST_PACKAGE_ID, REGISTRY_ID } from './config';
+import { ORIGINAL_PACKAGE_ID, REGISTRY_ID, V3_STATE_ID } from './config';
 import { LayerStacker } from './LayerStacker';
 import GridBackground from './components/GridBackground';
 import { AdminDashboard } from './AdminDashboard';
 import registryData from './registry.json';
 import '@mysten/dapp-kit/dist/index.css';
+
+const ACTIVE_PACKAGE = "0x4b254bb4146094f1214106f7be8b5cfffd59e5a0f2a89f22ae3eef024d2fda0e";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -42,37 +44,43 @@ const normalizeCategory = (rawCat: string) => {
   return cat;
 };
 
-// --- COMPONENT: Fast, Snappy Staggered Thumbnail ---
-const ConstructThumbnail = ({ op, index, isSelected, onClick, suiClient, isProcessingTx, refreshCounter, retryRpc }: any) => {
+// --- MEMOIZED ROLLING THUMBNAIL ---
+const ConstructThumbnail = React.memo(({ op, index, isSelected, onClick, suiClient, isProcessingTx, refreshCounter, retryRpc }: any) => {
   const id = op.data?.objectId || op.address;
   const fields = (op.data?.content as any)?.fields;
   const baseImg = fields?.image_url || fields?.url || '';
   
   const [gearMap, setGearMap] = useState<Record<string, string>>({});
   const [isDataLoading, setIsDataLoading] = useState(true);
-  const [imgLoadedCount, setImgLoadedCount] = useState(0);
+  const [areImagesReady, setAreImagesReady] = useState(false);
+  const [failsafe, setFailsafe] = useState(false);
 
   useEffect(() => {
-    setImgLoadedCount(0);
+    const timer = setTimeout(() => setFailsafe(true), 6000);
+    return () => clearTimeout(timer);
   }, [id, refreshCounter]);
 
   useEffect(() => {
     let active = true;
     const fetchGear = async () => {
       setIsDataLoading(true);
-      
+      setFailsafe(false);
+
       const cacheKey = `numbpolys_gear_thumb_${id}`;
       const cachedData = sessionStorage.getItem(cacheKey);
       if (cachedData) {
-        setGearMap(JSON.parse(cachedData));
-        setIsDataLoading(false);
+        if (active) {
+          setGearMap(JSON.parse(cachedData));
+          setIsDataLoading(false);
+        }
         return;
       }
-
+      
       try {
-        await new Promise(resolve => setTimeout(resolve, index * 15)); 
+        const delay = index < 3 ? (index * 50) : (150 + Math.random() * 300);
+        await new Promise(resolve => setTimeout(resolve, delay));
         if (!active) return;
-        
+
         const dynamicFields = await retryRpc(() => suiClient.getDynamicFields({ parentId: id }));
         if (!active) return;
         
@@ -89,29 +97,29 @@ const ConstructThumbnail = ({ op, index, isSelected, onClick, suiClient, isProce
             const traitData = (childObject.data?.content as any)?.fields;
             const rawCat = traitData?.category || traitData?.Category || traitData?.name;
             const rawUrl = traitData?.image_url || traitData?.url || traitData?.image;
-            if (rawCat && rawUrl && rawUrl.toLowerCase() !== 'none') {
+            if (rawCat && rawUrl && rawUrl.toLowerCase() !== 'none' && rawUrl.toLowerCase() !== 'null') {
               newGearMap[normalizeCategory(rawCat)] = rawUrl;
             }
           }
           if (active) {
             setGearMap(newGearMap);
-            sessionStorage.setItem(cacheKey, JSON.stringify(newGearMap)); 
+            sessionStorage.setItem(cacheKey, JSON.stringify(newGearMap));
           }
         } else {
           if (active) {
             setGearMap({});
-            sessionStorage.setItem(cacheKey, JSON.stringify({})); 
+            sessionStorage.setItem(cacheKey, JSON.stringify({}));
           }
         }
       } catch(e) {
-        console.error("Thumbnail load error:", e);
+        console.error("Thumbnail error:", e);
       } finally {
         if (active) setIsDataLoading(false);
       }
     };
     fetchGear();
     return () => { active = false; };
-  }, [id, suiClient, refreshCounter, index, retryRpc]);
+  }, [id, suiClient, refreshCounter, retryRpc, index]);
 
   const activeUrls = [
     gearMap['background'],
@@ -122,33 +130,50 @@ const ConstructThumbnail = ({ op, index, isSelected, onClick, suiClient, isProce
     gearMap['jewelries'],
     gearMap['eyewear'],
     gearMap['headwear']
-  ].filter(url => url && url.toLowerCase() !== 'none');
-  
-  const [failsafe, setFailsafe] = useState(false);
-  useEffect(() => {
-    setFailsafe(false);
-    const timer = setTimeout(() => setFailsafe(true), 4000);
-    return () => clearTimeout(timer);
-  }, [isDataLoading, refreshCounter]);
+  ].filter(url => url && url.toLowerCase() !== 'none' && url.toLowerCase() !== 'null');
 
-  const isFullyRendered = failsafe || (!isDataLoading && activeUrls.length > 0 && imgLoadedCount >= activeUrls.length);
+  useEffect(() => {
+    if (isDataLoading) return;
+    let active = true;
+    if (activeUrls.length === 0) {
+      setAreImagesReady(true);
+      return;
+    }
+    setAreImagesReady(false);
+    let loadedCount = 0;
+
+    activeUrls.forEach(url => {
+      const img = new Image();
+      const markLoaded = () => {
+        if (active) {
+          loadedCount++;
+          if (loadedCount >= activeUrls.length) setAreImagesReady(true);
+        }
+      };
+      img.onload = markLoaded;
+      img.onerror = markLoaded;
+      img.src = url;
+    });
+
+    return () => { active = false; };
+  }, [isDataLoading, activeUrls.join(',')]);
+
+  const isRolling = !failsafe && (isDataLoading || !areImagesReady);
 
   return (
     <div 
       onClick={() => !isProcessingTx && onClick(id)}
       style={{ flexShrink: 0, width: '80px', height: '80px', cursor: isProcessingTx ? 'not-allowed' : 'pointer', border: isSelected ? '2px solid #06B6D4' : '1px solid rgba(255,255,255,0.2)', background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden' }}
     >
-      {!isFullyRendered && (
-        <div style={{ position: 'absolute', zIndex: 10, width: '16px', height: '16px', border: '2px solid rgba(6, 182, 212, 0.2)', borderTopColor: '#06B6D4', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+      {isRolling && (
+        <div style={{ position: 'absolute', zIndex: 10, width: '20px', height: '20px', border: '2px solid rgba(6, 182, 212, 0.2)', borderTopColor: '#06B6D4', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
       )}
       
-      <div style={{ opacity: isFullyRendered ? 1 : 0, transition: 'opacity 0.2s ease', width: '100%', height: '100%' }}>
+      <div style={{ opacity: isRolling ? 0 : 1, transition: 'opacity 0.2s ease', width: '100%', height: '100%' }}>
         {activeUrls.map((url, idx) => (
           <img 
             key={`thumb-${url}-${idx}`} 
             src={url} 
-            onLoad={() => setImgLoadedCount(p => p + 1)} 
-            onError={() => setImgLoadedCount(p => p + 1)} 
             style={{ position: 'absolute', width: '100%', height: '100%', objectFit: 'contain', zIndex: idx + 1 }} 
             alt="" 
           />
@@ -156,7 +181,15 @@ const ConstructThumbnail = ({ op, index, isSelected, onClick, suiClient, isProce
       </div>
     </div>
   );
-};
+}, (prevProps, nextProps) => {
+  return (
+    prevProps.isSelected === nextProps.isSelected &&
+    prevProps.isProcessingTx === nextProps.isProcessingTx &&
+    prevProps.refreshCounter === nextProps.refreshCounter &&
+    (prevProps.op.data?.objectId || prevProps.op.address) === (nextProps.op.data?.objectId || nextProps.op.address)
+  );
+});
+
 // --------------------------------------------------------
 
 function TerminalUI() {
@@ -166,83 +199,53 @@ function TerminalUI() {
 
   const [activeView, setActiveView] = useState<'GENERATOR' | 'ARMORY' | 'ADMIN'>('GENERATOR');
   const [selectedOpId, setSelectedOpId] = useState<string | null>(null);
-  const [equippedGear, setEquippedGear] = useState<Record<string, { objectId: string; imageUrl: string; name?: string }>>({});
+  
+  const [equippedGear, setEquippedGear] = useState<Record<string, { objectId: string; imageUrl: string; name?: string; originalCategory?: string; isNone?: boolean }>>({});
+  
   const [isLoadingSlots, setIsLoadingSlots] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
-
-  const [imgLoadCount, setImgLoadCount] = useState(0);
-  const [forceRender, setForceRender] = useState(false);
+  const [areMainImagesReady, setAreMainImagesReady] = useState(false);
+  const [mainFailsafe, setMainFailsafe] = useState(false);
   const [refreshCounter, setRefreshCounter] = useState(0);
 
   const [currentPage, setCurrentPage] = useState(0);
   const ITEMS_PER_PAGE = 12;
-
   const [mintQuantity, setMintQuantity] = useState<number>(1);
   const [isProcessingTx, setIsProcessingTx] = useState(false);
   const [txMessage, setTxMessage] = useState<string | null>(null);
+  const [transferAddress, setTransferAddress] = useState<string>('');
 
   const displayTxMessage = (msg: string) => {
     setTxMessage(msg);
     setTimeout(() => setTxMessage(null), 6000);
   };
 
-  const { data: registryObj, refetch: refetchRegistry } = useSuiClientQuery(
-    'getObject',
-    { id: REGISTRY_ID, options: { showContent: true } }
-  );
-  
+  const { data: registryObj, refetch: refetchRegistry } = useSuiClientQuery('getObject', { id: REGISTRY_ID, options: { showContent: true } });
+  const { data: v3StateObj } = useSuiClientQuery('getObject', { id: V3_STATE_ID, options: { showContent: true } }, { enabled: !!V3_STATE_ID });
+
   const regFields = (registryObj?.data?.content as any)?.fields;
-  const currentPhase = regFields?.phase || 0; 
+  const currentPhase = regFields?.phase !== undefined ? Number(regFields.phase) : 0; 
   const mintPriceMist = regFields?.mint_price || "5000000000";
   const publicIndex = regFields?.public_minted ? parseInt(regFields.public_minted) : 111;
+  const v3Fields = (v3StateObj?.data?.content as any)?.fields;
+  const gtdPriceMist = v3Fields?.gtd_price || "2500000000";
+  const fcfsPriceMist = v3Fields?.fcfs_price || "3500000000";
 
-  // FETCHING V1 DATA TYPES
-  const { data: whitelistTickets, refetch: refetchTickets } = useSuiClientQuery(
-    'getOwnedObjects',
-    {
-      owner: account?.address as string,
-      filter: { StructType: `${ORIGINAL_PACKAGE_ID}::operative::WhitelistTicket` },
-    },
-    { enabled: !!account && activeView === 'GENERATOR' }
-  );
-  
-  const availableTickets = whitelistTickets?.data || [];
-  const maxWlAllowed = availableTickets.length;
+  const { data: gtdTickets, refetch: refetchGtd } = useSuiClientQuery('getOwnedObjects', { owner: account?.address as string, filter: { StructType: `${ACTIVE_PACKAGE}::operative::GtdTicket` } }, { enabled: !!account && activeView === 'GENERATOR' });
+  const { data: fcfsTickets, refetch: refetchFcfs } = useSuiClientQuery('getOwnedObjects', { owner: account?.address as string, filter: { StructType: `${ACTIVE_PACKAGE}::operative::FcfsTicket` } }, { enabled: !!account && activeView === 'GENERATOR' });
+  const availableGtd = gtdTickets?.data || [];
+  const availableFcfs = fcfsTickets?.data || [];
 
-  const { data: ownedOperatives, refetch: refetchOperatives } = useSuiClientQuery(
-    'getOwnedObjects',
-    {
-      owner: account?.address as string,
-      filter: { StructType: `${ORIGINAL_PACKAGE_ID}::operative::Operative` },
-      options: { showContent: true },
-    },
-    { enabled: !!account }
-  );
-
-  const { data: looseTraits, refetch: refetchTraits } = useSuiClientQuery(
-    'getOwnedObjects',
-    {
-      owner: account?.address as string,
-      filter: { StructType: `${ORIGINAL_PACKAGE_ID}::operative::Trait` },
-      options: { showContent: true },
-    },
-    { enabled: !!account && activeView === 'ARMORY' }
-  );
+  const { data: ownedOperatives, refetch: refetchOperatives } = useSuiClientQuery('getOwnedObjects', { owner: account?.address as string, filter: { StructType: `${ORIGINAL_PACKAGE_ID}::operative::Operative` }, options: { showContent: true } }, { enabled: !!account });
+  const { data: looseTraits, refetch: refetchTraits } = useSuiClientQuery('getOwnedObjects', { owner: account?.address as string, filter: { StructType: `${ORIGINAL_PACKAGE_ID}::operative::Trait` }, options: { showContent: true } }, { enabled: !!account && activeView === 'ARMORY' });
 
   useEffect(() => {
-    if (ownedOperatives?.data?.length && !selectedOpId) {
+    if (ownedOperatives?.data?.length && (!selectedOpId || !ownedOperatives.data.find(op => op.data?.objectId === selectedOpId))) {
       setSelectedOpId(ownedOperatives.data[0].data?.objectId || null);
     }
   }, [ownedOperatives, selectedOpId]);
 
-  useEffect(() => {
-    setForceRender(false);
-    const timer = setTimeout(() => setForceRender(true), 4000);
-    return () => clearTimeout(timer);
-  }, [selectedOpId, isLoadingSlots]);
-
   const activeLoadRef = React.useRef<string | null>(null);
-
   const retryRpc = useCallback(async <T,>(fn: () => Promise<T>, retries = 5, delay = 1500): Promise<T> => {
     try {
       return await fn();
@@ -257,48 +260,51 @@ function TerminalUI() {
 
   const loadEquippedTraits = async (opId: string) => {
     activeLoadRef.current = opId;
-    setImgLoadCount(0);
     setIsLoadingSlots(true);
+    setMainFailsafe(false);
 
     const cacheKey = `numbpolys_gear_full_${opId}`;
-    const cachedData = sessionStorage.getItem(cacheKey);
     
-    if (cachedData) {
-      setEquippedGear(JSON.parse(cachedData));
-      setIsLoadingSlots(false);
-      return; 
-    }
-
+    // 🔥 AGGRESSIVE CACHE WIPE: Forces truth from the blockchain every time
+    sessionStorage.removeItem(cacheKey);
     setEquippedGear({}); 
 
     try {
       const dynamicFields = await retryRpc(() => suiClient.getDynamicFields({ parentId: opId }));
       if (activeLoadRef.current !== opId) return;
 
-      let gearMap: Record<string, { objectId: string; imageUrl: string; name?: string }> = {};
+      let gearMap: Record<string, { objectId: string; imageUrl: string; name?: string; originalCategory?: string; isNone?: boolean }> = {};
 
       if (dynamicFields.data.length > 0) {
         const traitIds = dynamicFields.data.map(field => field.objectId);
-        
-        const childObjects = await retryRpc(() => suiClient.multiGetObjects({
-          ids: traitIds,
-          options: { showContent: true }
-        }));
-
+        const childObjects = await retryRpc(() => suiClient.multiGetObjects({ ids: traitIds, options: { showContent: true } }));
         if (activeLoadRef.current !== opId) return;
 
         for (const childObject of childObjects) {
           const traitData = (childObject.data?.content as any)?.fields;
           const rawCat = traitData?.category || traitData?.Category || traitData?.name;
-          const rawUrl = traitData?.image_url || traitData?.url || traitData?.image;
+          const rawUrl = traitData?.image_url || traitData?.url || traitData?.image || '';
           const traitName = traitData?.name || '';
           
-          if (rawCat && rawUrl && rawUrl.toLowerCase() !== 'none') {
+          if (rawCat) {
             const cleanCat = normalizeCategory(rawCat);
+            const urlStr = String(rawUrl).toLowerCase();
+            const nameStr = String(traitName).toLowerCase();
+            
+            // 🚨 GHOST SCANNER: Hunts down nulls, empty strings, and "None" strings
+            const isNone = 
+              urlStr === 'none' || 
+              urlStr === 'null' || 
+              urlStr === '' || 
+              nameStr.includes('none') || 
+              nameStr.includes('null');
+            
             gearMap[cleanCat] = {
               objectId: childObject.data!.objectId,
               imageUrl: rawUrl,
               name: traitName,
+              originalCategory: rawCat,
+              isNone: isNone
             };
           }
         }
@@ -309,39 +315,89 @@ function TerminalUI() {
         sessionStorage.setItem(cacheKey, JSON.stringify(gearMap)); 
       }
     } catch (err) {
-      console.error('Failed to load equipped gear:', err);
+      console.error('Failed to load gear:', err);
     } finally {
-      if (activeLoadRef.current === opId) {
-        setIsLoadingSlots(false);
-      }
+      if (activeLoadRef.current === opId) setIsLoadingSlots(false);
     }
   };
 
   useEffect(() => {
     if (selectedOpId) {
       loadEquippedTraits(selectedOpId);
+      const timer = setTimeout(() => setMainFailsafe(true), 6000);
+      return () => clearTimeout(timer);
     }
-  }, [selectedOpId]);
+  }, [selectedOpId, refreshCounter]);
 
   const refreshTerminalState = async () => {
     if (selectedOpId) {
       sessionStorage.removeItem(`numbpolys_gear_full_${selectedOpId}`);
       sessionStorage.removeItem(`numbpolys_gear_thumb_${selectedOpId}`);
-      await loadEquippedTraits(selectedOpId);
     }
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    if (selectedOpId) await loadEquippedTraits(selectedOpId);
     await refetchRegistry();
-    await refetchTickets();
+    await refetchGtd();
+    await refetchFcfs();
     await refetchTraits();
     await refetchOperatives();
+    
     setRefreshCounter(prev => prev + 1); 
   };
+
+  const displayOperatives = ownedOperatives?.data || [];
+  const activeOpData = displayOperatives.find((op: any) => (op.data?.objectId || op.address) === selectedOpId);
+  const activeOpFields = (activeOpData?.data?.content as any)?.fields;
+  const baseBodyUrl = activeOpFields?.image_url || activeOpFields?.url || '';
+  const loreName = activeOpFields?.name || activeOpFields?.lore_name || (selectedOpId ? `OPERATIVE // ${selectedOpId.slice(0, 6)}...${selectedOpId.slice(-4)}` : '');
+
+  const activeLayers = [
+    equippedGear['background']?.isNone ? null : equippedGear['background']?.imageUrl,
+    baseBodyUrl,
+    equippedGear['outfits']?.isNone ? null : equippedGear['outfits']?.imageUrl,
+    equippedGear['face']?.isNone ? null : equippedGear['face']?.imageUrl,
+    equippedGear['eye']?.isNone ? null : equippedGear['eye']?.imageUrl,
+    equippedGear['jewelries']?.isNone ? null : equippedGear['jewelries']?.imageUrl,
+    equippedGear['eyewear']?.isNone ? null : equippedGear['eyewear']?.imageUrl,
+    equippedGear['headwear']?.isNone ? null : equippedGear['headwear']?.imageUrl,
+  ].filter(url => url);
+
+  useEffect(() => {
+    if (isLoadingSlots) return;
+    let active = true;
+    if (activeLayers.length === 0) {
+      setAreMainImagesReady(true);
+      return;
+    }
+    setAreMainImagesReady(false);
+    let loadedCount = 0;
+
+    activeLayers.forEach(url => {
+      if(!url) return;
+      const img = new Image();
+      const markLoaded = () => {
+        if (active) {
+          loadedCount++;
+          if (loadedCount >= activeLayers.length) setAreMainImagesReady(true);
+        }
+      };
+      img.onload = markLoaded;
+      img.onerror = markLoaded;
+      img.src = url;
+    });
+    return () => { active = false; };
+  }, [isLoadingSlots, activeLayers.join(',')]);
+
+  const isMainRolling = !mainFailsafe && (isLoadingSlots || !areMainImagesReady);
 
   const handleEquip = (traitId: string, category: string) => {
     if (!selectedOpId || isProcessingTx) return;
     const normalizedTarget = normalizeCategory(category);
-    if (equippedGear[normalizedTarget]) {
-      displayTxMessage(`[ ERROR: SLOT ${normalizedTarget.toUpperCase()} IS ALREADY OCCUPIED ]`);
+    const existingGear = equippedGear[normalizedTarget];
+
+    if (existingGear) {
+      displayTxMessage(`[ ERROR: SLOT IS OCCUPIED BY A ${existingGear.isNone ? 'GHOST TRAIT' : 'REAL ITEM'}. UNEQUIP IT FIRST. ]`);
       return;
     }
 
@@ -353,20 +409,19 @@ function TerminalUI() {
     const traitName = traitFields?.name || '';
 
     let updatedLoreName = loreName;
-    if (traitName && !loreName.includes(traitName)) {
+    if (traitName && !loreName.includes(traitName) && traitName.toLowerCase() !== 'none' && traitName.toLowerCase() !== 'null') {
       updatedLoreName = `${loreName} // ${traitName.toUpperCase()}`;
     }
 
     const tx = new Transaction();
-    
-    // EXECUTING V2 LOGIC
+
     tx.moveCall({
-      target: `${LATEST_PACKAGE_ID}::operative::equip_trait`,
+      target: `${ACTIVE_PACKAGE}::operative::equip_trait`,
       arguments: [tx.object(selectedOpId), tx.object(traitId)],
     });
 
     tx.moveCall({
-      target: `${LATEST_PACKAGE_ID}::operative::sync_metadata`,
+      target: `${ACTIVE_PACKAGE}::operative::sync_metadata`,
       arguments: [
         tx.object(selectedOpId),
         tx.pure.string(updatedLoreName),
@@ -379,13 +434,12 @@ function TerminalUI() {
       {
         onSuccess: async () => {
           displayTxMessage(`[ SUCCESS: GEAR EQUIPPED & ON-CHAIN STATE SYNCED ]`);
-          await new Promise(resolve => setTimeout(resolve, 3000));
           await refreshTerminalState();
           setIsProcessingTx(false);
         },
-        onError: (err) => {
+        onError: (err: any) => {
           console.error(err);
-          displayTxMessage(`[ ERROR: TRANSACTION FAILED ]`);
+          displayTxMessage(`[ ERROR: ${err.message?.split('\n')[0] || 'TRANSACTION FAILED'} ]`);
           setIsProcessingTx(false);
         },
       }
@@ -393,7 +447,7 @@ function TerminalUI() {
   };
 
   const handleUnequip = (category: string) => {
-    if (!selectedOpId || isProcessingTx) return;
+    if (!selectedOpId || !account || isProcessingTx) return;
 
     setIsProcessingTx(true);
     displayTxMessage(`[ PROCESSING UNEQUIP & SYNCING METADATA... ]`);
@@ -402,20 +456,20 @@ function TerminalUI() {
     const unequippedName = unequippedItem?.name || '';
     
     let updatedLoreName = loreName;
-    if (unequippedName) {
+    if (unequippedName && !unequippedItem?.isNone) {
       updatedLoreName = updatedLoreName.replace(` // ${unequippedName.toUpperCase()}`, '').trim();
     }
 
+    const onChainCategory = unequippedItem?.originalCategory || category.charAt(0).toUpperCase() + category.slice(1);
+
     const tx = new Transaction();
-    
-    // EXECUTING V2 LOGIC
     tx.moveCall({
-      target: `${LATEST_PACKAGE_ID}::operative::unequip_trait`,
-      arguments: [tx.object(selectedOpId), tx.pure.string(category)],
+      target: `${ACTIVE_PACKAGE}::operative::unequip_trait`,
+      arguments: [tx.object(selectedOpId), tx.pure.string(onChainCategory)],
     });
 
     tx.moveCall({
-      target: `${LATEST_PACKAGE_ID}::operative::sync_metadata`,
+      target: `${ACTIVE_PACKAGE}::operative::sync_metadata`,
       arguments: [
         tx.object(selectedOpId),
         tx.pure.string(updatedLoreName),
@@ -428,49 +482,90 @@ function TerminalUI() {
       {
         onSuccess: async () => {
           displayTxMessage(`[ SUCCESS: GEAR UNEQUIPPED & ON-CHAIN STATE SYNCED ]`);
-          await new Promise(resolve => setTimeout(resolve, 3000));
           await refreshTerminalState();
           setIsProcessingTx(false);
         },
-        onError: (err) => {
+        onError: (err: any) => {
           console.error(err);
-          displayTxMessage(`[ ERROR: TRANSACTION FAILED ]`);
+          displayTxMessage(`[ ERROR: ${err.message?.split('\n')[0] || 'TRANSACTION FAILED'} ]`);
           setIsProcessingTx(false);
         },
       }
     );
   };
 
+  const handleTransfer = (objectId: string, itemType: 'CONSTRUCT' | 'TRAIT') => {
+    if (!transferAddress.trim() || !transferAddress.startsWith('0x') || transferAddress.length !== 66) {
+      displayTxMessage(`[ ERROR: INVALID SUI ADDRESS FORMAT ]`);
+      return;
+    }
+
+    setIsProcessingTx(true);
+    displayTxMessage(`[ INITIATING ${itemType} TRANSFER... PLEASE SIGN IN WALLET ]`);
+
+    try {
+      const tx = new Transaction();
+      tx.transferObjects([tx.object(objectId)], tx.pure.address(transferAddress.trim()));
+
+      signAndExecuteTransaction(
+        { transaction: tx },
+        {
+          onSuccess: async () => {
+            displayTxMessage(`[ SUCCESS: ${itemType} TRANSMITTED TO RECIPIENT ]`);
+            if (itemType === 'CONSTRUCT' && selectedOpId === objectId) setSelectedOpId(null);
+            await new Promise(resolve => setTimeout(resolve, 3000));
+            await refreshTerminalState();
+            setTransferAddress('');
+            setIsProcessingTx(false);
+          },
+          onError: (err: any) => {
+            displayTxMessage(`[ ERROR: ${err.message?.split('\n')[0] || 'TRANSFER FAILED'} ]`);
+            setIsProcessingTx(false);
+          }
+        }
+      )
+    } catch (err: any) {
+       displayTxMessage(`[ ERROR: ${err.message} ]`);
+       setIsProcessingTx(false);
+    }
+  };
+
   const handleDragStart = (e: React.DragEvent, type: 'loose' | 'equipped', payload: any) => {
     e.dataTransfer.setData('application/json', JSON.stringify({ type, ...payload }));
   };
-
   const handleDropOnCanvas = (e: React.DragEvent) => {
     e.preventDefault();
     try {
       const data = JSON.parse(e.dataTransfer.getData('application/json'));
-      if (data.type === 'loose') {
-        handleEquip(data.objectId, data.category);
-      }
+      if (data.type === 'loose') handleEquip(data.objectId, data.category);
     } catch (err) {}
   };
-
   const handleDropOnInventory = (e: React.DragEvent) => {
     e.preventDefault();
     try {
       const data = JSON.parse(e.dataTransfer.getData('application/json'));
-      if (data.type === 'equipped') {
-        handleUnequip(data.category);
-      }
+      if (data.type === 'equipped') handleUnequip(data.category);
     } catch (err) {}
   };
 
   const mintOperative = async () => {
     if (!account || isProcessingTx) return;
     if (currentPhase === 0) return;
-    if (currentPhase === 1 && maxWlAllowed === 0) return;
 
-    const actualCount = currentPhase === 1 ? Math.min(mintQuantity, maxWlAllowed) : mintQuantity;
+    let activeTickets: any[] = [];
+    let activePrice = mintPriceMist;
+    
+    if (currentPhase === 1) { 
+        if (availableGtd.length === 0) return;
+        activeTickets = availableGtd; 
+        activePrice = gtdPriceMist; 
+    } else if (currentPhase === 2) { 
+        if (availableFcfs.length === 0) return;
+        activeTickets = availableFcfs; 
+        activePrice = fcfsPriceMist; 
+    }
+
+    const actualCount = (currentPhase === 1 || currentPhase === 2) ? Math.min(mintQuantity, activeTickets.length) : mintQuantity;
 
     setIsProcessingTx(true);
     displayTxMessage(`[ PREPARING BATCH MINT (${actualCount})... PLEASE SIGN IN WALLET ]`);
@@ -482,51 +577,35 @@ function TerminalUI() {
         const tokenData = registryData[publicIndex + i];
         if (!tokenData) throw new Error("Metadata index out of bounds");
 
-        const traitCategories = Object.keys(tokenData.display_traits).filter(k => k !== 'Rarity Tier');
-        const traitNames = traitCategories.map(k => {
-          let val = tokenData.display_traits[k as keyof typeof tokenData.display_traits];
-          if (typeof val === 'string' && val.includes('#')) val = val.split('#')[0].trim();
-          return val;
-        });
-        
-        const traitUrls = traitCategories.map(k => {
+        const traitCategories: string[] = [];
+        const traitNames: string[] = [];
+        const traitUrls: string[] = [];
+
+        Object.keys(tokenData.display_traits).forEach(k => {
+          if (k === 'Rarity Tier') return;
+
+          let nameVal = tokenData.display_traits[k as keyof typeof tokenData.display_traits];
+          if (typeof nameVal === 'string' && nameVal.includes('#')) nameVal = nameVal.split('#')[0].trim();
+
           const rawKey = k === 'Jewelry' ? 'Jeweleries' : k;
-          return (tokenData.walrus_urls as any)[rawKey] || "None";
+          const urlVal = (tokenData.walrus_urls as any)[rawKey];
+
+          // FUTURE MINT FIX: Completely drops nulls and Nones so they are never minted again
+          if (urlVal !== null && urlVal !== "None" && urlVal !== "null" && nameVal !== "None") {
+            traitCategories.push(k);
+            traitNames.push(nameVal);
+            traitUrls.push(urlVal);
+          }
         });
 
-        const [feeCoin] = tx.splitCoins(tx.gas, [tx.pure.u64(mintPriceMist)]);
+        const [feeCoin] = tx.splitCoins(tx.gas, [tx.pure.u64(activePrice)]);
 
         if (currentPhase === 1) {
-          // EXECUTING V2 LOGIC
-          tx.moveCall({
-            target: `${LATEST_PACKAGE_ID}::operative::whitelist_mint`,
-            arguments: [
-              tx.object(REGISTRY_ID),
-              tx.object(availableTickets[i].data!.objectId),
-              feeCoin,
-              tx.pure.string(tokenData.lore_name),
-              tx.pure.string(tokenData.display_traits['Rarity Tier']),
-              tx.pure.string((tokenData.walrus_urls as any)['Base Body'] || ""),
-              tx.pure.vector('string', traitCategories),
-              tx.pure.vector('string', traitNames),
-              tx.pure.vector('string', traitUrls),
-            ],
-          });
-        } else {
-          // EXECUTING V2 LOGIC
-          tx.moveCall({
-            target: `${LATEST_PACKAGE_ID}::operative::public_mint`,
-            arguments: [
-              tx.object(REGISTRY_ID),
-              feeCoin,
-              tx.pure.string(tokenData.lore_name),
-              tx.pure.string(tokenData.display_traits['Rarity Tier']),
-              tx.pure.string((tokenData.walrus_urls as any)['Base Body'] || ""),
-              tx.pure.vector('string', traitCategories),
-              tx.pure.vector('string', traitNames),
-              tx.pure.vector('string', traitUrls),
-            ],
-          });
+          tx.moveCall({ target: `${ACTIVE_PACKAGE}::operative::gtd_mint`, arguments: [ tx.object(REGISTRY_ID), tx.object(V3_STATE_ID), tx.object(activeTickets[i].data!.objectId), feeCoin, tx.pure.string(tokenData.lore_name), tx.pure.string(tokenData.display_traits['Rarity Tier']), tx.pure.string((tokenData.walrus_urls as any)['Base Body'] || ""), tx.pure.vector('string', traitCategories), tx.pure.vector('string', traitNames), tx.pure.vector('string', traitUrls) ] });
+        } else if (currentPhase === 2) {
+          tx.moveCall({ target: `${ACTIVE_PACKAGE}::operative::fcfs_mint`, arguments: [ tx.object(REGISTRY_ID), tx.object(V3_STATE_ID), tx.object(activeTickets[i].data!.objectId), feeCoin, tx.pure.string(tokenData.lore_name), tx.pure.string(tokenData.display_traits['Rarity Tier']), tx.pure.string((tokenData.walrus_urls as any)['Base Body'] || ""), tx.pure.vector('string', traitCategories), tx.pure.vector('string', traitNames), tx.pure.vector('string', traitUrls) ] });
+        } else if (currentPhase === 3) {
+          tx.moveCall({ target: `${ACTIVE_PACKAGE}::operative::public_mint`, arguments: [ tx.object(REGISTRY_ID), feeCoin, tx.pure.string(tokenData.lore_name), tx.pure.string(tokenData.display_traits['Rarity Tier']), tx.pure.string((tokenData.walrus_urls as any)['Base Body'] || ""), tx.pure.vector('string', traitCategories), tx.pure.vector('string', traitNames), tx.pure.vector('string', traitUrls) ] });
         }
       }
 
@@ -535,51 +614,27 @@ function TerminalUI() {
         {
           onSuccess: async () => {
             displayTxMessage(`[ SUCCESS: ${actualCount} CONSTRUCT(S) DEPLOYED ON-CHAIN ]`);
-            await new Promise(resolve => setTimeout(resolve, 3000));
-            setMintQuantity(1); 
             await refreshTerminalState();
+            setMintQuantity(1); 
             setIsProcessingTx(false);
           },
-          onError: (err) => {
-            console.error(err);
-            displayTxMessage(`[ ERROR: TRANSACTION REJECTED OR FAILED ]`);
+          onError: (err: any) => {
+            displayTxMessage(`[ ERROR: ${err.message?.split('\n')[0] || 'TRANSACTION REJECTED'} ]`);
             setIsProcessingTx(false);
           },
         }
       );
     } catch (err: any) {
-      console.error(err);
       displayTxMessage(`[ ERROR: ${err.message || "INITIALIZATION FAILED"} ]`);
       setIsProcessingTx(false);
     }
   };
-
-  const displayOperatives = ownedOperatives?.data || [];
   
   const totalPages = Math.ceil(displayOperatives.length / ITEMS_PER_PAGE);
   const paginatedOperatives = displayOperatives.slice(currentPage * ITEMS_PER_PAGE, (currentPage + 1) * ITEMS_PER_PAGE);
 
-  const activeOpData = displayOperatives.find((op: any) => (op.data?.objectId || op.address) === selectedOpId);
-  const activeOpFields = (activeOpData?.data?.content as any)?.fields;
-  const baseBodyUrl = activeOpFields?.image_url || activeOpFields?.url || '';
-  
-  const loreName = activeOpFields?.name || activeOpFields?.lore_name || (selectedOpId ? `OPERATIVE // ${selectedOpId.slice(0, 6)}...${selectedOpId.slice(-4)}` : '');
-
-  const activeLayers = [
-    equippedGear['background']?.imageUrl,
-    baseBodyUrl,
-    equippedGear['outfits']?.imageUrl,
-    equippedGear['face']?.imageUrl,
-    equippedGear['eye']?.imageUrl,
-    equippedGear['jewelries']?.imageUrl,
-    equippedGear['eyewear']?.imageUrl,
-    equippedGear['headwear']?.imageUrl,
-  ].filter(url => url && url.toLowerCase() !== 'none');
-
-  const isFullyRendered = forceRender || (!isLoadingSlots && activeLayers.length > 0 && imgLoadCount >= activeLayers.length);
-
   const exportConstruct = async () => {
-    if (isExporting || !selectedOpId) return;
+    if (isExporting || !selectedOpId || isMainRolling) return;
     setIsExporting(true);
     displayTxMessage(`[ ASSEMBLING HIGH-RES EXPORT... ]`);
 
@@ -597,23 +652,14 @@ function TerminalUI() {
         await new Promise<void>((resolve) => {
           const img = new Image();
           img.crossOrigin = 'anonymous';
-          
-          img.onload = () => {
-            ctx.drawImage(img, 0, 0, size, size);
-            resolve();
-          };
-
+          img.onload = () => { ctx.drawImage(img, 0, 0, size, size); resolve(); };
           img.onerror = () => {
             const fallbackImg = new Image();
             fallbackImg.crossOrigin = 'anonymous';
-            fallbackImg.onload = () => {
-              ctx.drawImage(fallbackImg, 0, 0, size, size);
-              resolve();
-            };
+            fallbackImg.onload = () => { ctx.drawImage(fallbackImg, 0, 0, size, size); resolve(); };
             fallbackImg.onerror = () => resolve();
             fallbackImg.src = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
           };
-          
           img.src = `https://wsrv.nl/?url=${encodeURIComponent(url)}&output=png`;
         });
       }
@@ -621,24 +667,17 @@ function TerminalUI() {
       canvas.toBlob((blob) => {
         if (!blob) {
           displayTxMessage(`[ ERROR: IMAGE ENCODING FAILED ]`);
-          setIsExporting(false);
-          return;
+          setIsExporting(false); return;
         }
 
         const blobUrl = URL.createObjectURL(blob);
         const link = document.createElement('a');
-        
-        const safeLoreName = loreName 
-          ? loreName.replace(/[^a-zA-Z0-9]/g, '_').replace(/_+/g, '_').toUpperCase() 
-          : `NUMB_POLYS_${selectedOpId.slice(0,6)}`;
-          
+        const safeLoreName = loreName ? loreName.replace(/[^a-zA-Z0-9]/g, '_').replace(/_+/g, '_').toUpperCase() : `NUMB_POLYS_${selectedOpId.slice(0,6)}`;
         link.download = `${safeLoreName}.png`;
         link.href = blobUrl;
-        
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-
         setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
         
         displayTxMessage(`[ SUCCESS: PFP EXPORTED ]`);
@@ -646,7 +685,6 @@ function TerminalUI() {
       }, 'image/png');
 
     } catch (error) {
-      console.error("Export error:", error);
       displayTxMessage(`[ ERROR: EXPORT FAILED ]`);
       setIsExporting(false);
     }
@@ -655,44 +693,40 @@ function TerminalUI() {
   let buttonText = isProcessingTx ? '⚡ PROCESSING...' : '⚡ CONNECT TERMINAL WALLET';
   let buttonDisabled = !account || isProcessingTx;
   let buttonStyle = {
-    padding: '14px', 
-    background: account ? '#E5E5E5' : 'rgba(255,255,255,0.03)', 
-    color: account ? '#0D0D11' : '#555', 
-    border: account ? '1px solid #E5E5E5' : '1px solid rgba(255,255,255,0.1)', 
-    cursor: account ? 'pointer' : 'not-allowed', 
-    fontFamily: 'inherit', fontWeight: '600', borderRadius: '2px', 
-    textTransform: 'uppercase' as const, letterSpacing: '0.1em', transition: 'all 0.3s ease',
-    width: '100%'
+    padding: '14px', background: account ? '#E5E5E5' : 'rgba(255,255,255,0.03)', color: account ? '#0D0D11' : '#555', border: account ? '1px solid #E5E5E5' : '1px solid rgba(255,255,255,0.1)', cursor: account ? 'pointer' : 'not-allowed', fontFamily: 'inherit', fontWeight: '600', borderRadius: '2px', textTransform: 'uppercase' as const, letterSpacing: '0.1em', transition: 'all 0.3s ease', width: '100%'
   };
 
   if (account) {
     if (currentPhase === 0) {
-      buttonText = 'MINT PAUSED';
-      buttonDisabled = true;
-      buttonStyle.background = 'rgba(255,51,51,0.1)';
-      buttonStyle.color = '#ff3333';
-      buttonStyle.border = '1px dashed #ff3333';
-      buttonStyle.cursor = 'not-allowed';
+      buttonText = 'MINT PAUSED'; buttonDisabled = true; buttonStyle.background = 'rgba(255,51,51,0.1)'; buttonStyle.color = '#ff3333'; buttonStyle.border = '1px dashed #ff3333'; buttonStyle.cursor = 'not-allowed';
     } else if (currentPhase === 1) {
-      if (maxWlAllowed > 0) {
-        const selectedQty = Math.min(mintQuantity, maxWlAllowed);
-        buttonText = isProcessingTx ? '⚡ PROCESSING...' : `⚡ MINT ${selectedQty} (WHITELIST)`;
-        buttonDisabled = isProcessingTx;
-        buttonStyle.background = 'rgba(0, 255, 0, 0.1)';
-        buttonStyle.color = '#00ff00';
-        buttonStyle.border = '1px solid #00ff00';
+      if (availableGtd.length > 0) {
+        const selectedQty = Math.min(mintQuantity, availableGtd.length);
+        buttonText = isProcessingTx ? '⚡ PROCESSING...' : `⚡ MINT ${selectedQty} (GTD TICKET)`; buttonDisabled = isProcessingTx; buttonStyle.background = 'rgba(0, 255, 0, 0.1)'; buttonStyle.color = '#00ff00'; buttonStyle.border = '1px solid #00ff00';
       } else {
-        buttonText = 'NOT WHITELISTED';
-        buttonDisabled = true;
-        buttonStyle.background = 'rgba(255,255,255,0.03)';
-        buttonStyle.color = '#555';
-        buttonStyle.border = '1px solid rgba(255,255,255,0.1)';
-        buttonStyle.cursor = 'not-allowed';
+        buttonText = 'NO GTD TICKETS FOUND'; buttonDisabled = true; buttonStyle.background = 'rgba(255,255,255,0.03)'; buttonStyle.color = '#555'; buttonStyle.border = '1px solid rgba(255,255,255,0.1)'; buttonStyle.cursor = 'not-allowed';
       }
     } else if (currentPhase === 2) {
-      buttonText = isProcessingTx ? '⚡ PROCESSING...' : `⚡ DEPLOY ${mintQuantity} CONSTRUCT(S)`;
+      if (availableFcfs.length > 0) {
+        const selectedQty = Math.min(mintQuantity, availableFcfs.length);
+        buttonText = isProcessingTx ? '⚡ PROCESSING...' : `⚡ MINT ${selectedQty} (FCFS TICKET)`; buttonDisabled = isProcessingTx; buttonStyle.background = 'rgba(255, 165, 0, 0.1)'; buttonStyle.color = 'orange'; buttonStyle.border = '1px solid orange';
+      } else {
+        buttonText = 'NO FCFS TICKETS FOUND'; buttonDisabled = true; buttonStyle.background = 'rgba(255,255,255,0.03)'; buttonStyle.color = '#555'; buttonStyle.border = '1px solid rgba(255,255,255,0.1)'; buttonStyle.cursor = 'not-allowed';
+      }
+    } else if (currentPhase === 3) {
+      buttonText = isProcessingTx ? '⚡ PROCESSING...' : `⚡ DEPLOY ${mintQuantity} CONSTRUCT(S)`; buttonDisabled = isProcessingTx;
     }
   }
+
+  const slotLabels: Record<string, string> = {
+    'background': 'BKG',
+    'face': 'FAC',
+    'eye': 'EYE',
+    'outfits': 'OUT',
+    'jewelries': 'JEW',
+    'headwear': 'HEA',
+    'eyewear': 'EYW'
+  };
 
   return (
     <div style={{ position: 'relative', width: '100%', minHeight: '100vh', backgroundColor: '#0D0D11', color: '#E5E5E5', fontFamily: 'var(--font-geist-sans), monospace', boxSizing: 'border-box', overflowX: 'hidden' }}>
@@ -710,7 +744,6 @@ function TerminalUI() {
       `}</style>
 
       <div className="crt-overlay" />
-
       <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', zIndex: 0, pointerEvents: 'none' }}>
         <Canvas camera={{ position: [0, 0, 8], fov: 50 }} style={{ width: '100%', height: '100%' }}>
           <ambientLight intensity={1} />
@@ -763,7 +796,7 @@ function TerminalUI() {
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'center', gap: '0.5rem' }}>
                       {[1, 2, 3, 4, 5].map(num => {
-                        const isSelectable = currentPhase === 1 ? num <= maxWlAllowed : true;
+                        const isSelectable = currentPhase === 1 ? num <= availableGtd.length : currentPhase === 2 ? num <= availableFcfs.length : true;
                         return (
                           <button 
                             key={num}
@@ -844,20 +877,18 @@ function TerminalUI() {
                       <div className="hud-corner-bottom" />
                       <div style={{ position: 'relative', width: '380px', height: '380px', margin: '0 auto', background: 'rgba(0,0,0,0.3)' }}>
                         
-                        {!isFullyRendered && (
+                        {isMainRolling && (
                           <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#0D0D11', zIndex: 20 }}>
                             <div style={{ width: '40px', height: '40px', border: '3px solid rgba(6, 182, 212, 0.2)', borderTopColor: '#06B6D4', borderRadius: '50%', animation: 'spin 1s linear infinite', marginBottom: '1rem' }} />
                             <span style={{ color: '#06B6D4', fontSize: '0.75rem', letterSpacing: '0.15em' }}>[ ASSEMBLING CONSTRUCT... ]</span>
                           </div>
                         )}
 
-                        <div style={{ opacity: isFullyRendered ? 1 : 0, transition: 'opacity 0.2s ease', width: '100%', height: '100%' }}>
+                        <div style={{ opacity: isMainRolling ? 0 : 1, transition: 'opacity 0.2s ease', width: '100%', height: '100%' }}>
                           {activeLayers.map((url, idx) => (
                             <img 
                               key={`main-${selectedOpId}-${url}-${idx}`} 
                               src={url} 
-                              onLoad={() => setImgLoadCount(p => p + 1)} 
-                              onError={() => setImgLoadCount(p => p + 1)} 
                               style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'contain', zIndex: idx + 1 }} 
                               alt="" 
                             />
@@ -868,32 +899,57 @@ function TerminalUI() {
                     
                     <button 
                       onClick={exportConstruct}
-                      disabled={!isFullyRendered || isExporting}
-                      style={{ background: 'rgba(6, 182, 212, 0.05)', color: '#06B6D4', border: '1px solid rgba(6, 182, 212, 0.3)', padding: '10px', fontFamily: 'inherit', fontSize: '0.75rem', fontWeight: 'bold', cursor: (!isFullyRendered || isExporting) ? 'not-allowed' : 'pointer', textTransform: 'uppercase', letterSpacing: '0.1em', borderRadius: '2px', transition: 'all 0.3s ease', width: '100%' }}
+                      disabled={isMainRolling || isExporting}
+                      style={{ background: 'rgba(6, 182, 212, 0.05)', color: '#06B6D4', border: '1px solid rgba(6, 182, 212, 0.3)', padding: '10px', fontFamily: 'inherit', fontSize: '0.75rem', fontWeight: 'bold', cursor: (isMainRolling || isExporting) ? 'not-allowed' : 'pointer', textTransform: 'uppercase', letterSpacing: '0.1em', borderRadius: '2px', transition: 'all 0.3s ease', width: '100%' }}
                     >
                       {isExporting ? '[ RENDERING IMAGE... ]' : '[ EXPORT HIGH-RES PFP ]'}
                     </button>
+
+                    <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.1)', padding: '1rem', backdropFilter: 'blur(12px)', borderRadius: '2px', width: '100%', boxSizing: 'border-box' }}>
+                      <h3 style={{ margin: '0 0 0.5rem 0', color: '#06B6D4', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.1em', fontSize: '0.85rem' }}>// SECURE TRANSFER UPLINK</h3>
+                      <input 
+                        type="text" 
+                        placeholder="Recipient Address (0x...)" 
+                        value={transferAddress}
+                        onChange={(e) => setTransferAddress(e.target.value)}
+                        style={{ width: '100%', background: 'rgba(0,0,0,0.3)', border: '1px solid #444', color: '#E5E5E5', padding: '8px', marginBottom: '0.5rem', boxSizing: 'border-box', fontFamily: 'inherit', fontSize: '11px' }}
+                      />
+                      <button 
+                        onClick={() => handleTransfer(selectedOpId!, 'CONSTRUCT')}
+                        disabled={isLoadingSlots || isProcessingTx || !transferAddress.trim()}
+                        style={{ width: '100%', background: 'rgba(255, 51, 51, 0.1)', color: '#ff3333', border: '1px solid rgba(255, 51, 51, 0.3)', padding: '8px', fontFamily: 'inherit', fontSize: '0.75rem', fontWeight: 'bold', cursor: (isLoadingSlots || isProcessingTx || !transferAddress.trim()) ? 'not-allowed' : 'pointer', textTransform: 'uppercase', letterSpacing: '0.1em', borderRadius: '2px', transition: 'all 0.3s ease' }}
+                      >
+                        [ TRANSFER CONSTRUCT ]
+                      </button>
+                    </div>
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', width: '100%', maxWidth: '400px' }}>
                     
+                    {/* // EQUIPPED GRID // */}
                     <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.1)', padding: '1rem', backdropFilter: 'blur(12px)', borderRadius: '2px' }}>
                       <h3 style={{ margin: '0 0 1rem 0', color: '#06B6D4', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.1em', fontSize: '0.85rem' }}>// EQUIPPED (DRAG OFF TO UNEQUIP)</h3>
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px' }}>
                         {['background', 'face', 'eye', 'outfits', 'jewelries', 'headwear', 'eyewear'].map((slot) => {
                           const gear = equippedGear[slot];
+                          const hasAnyGear = !!gear;
+
                           return (
                             <div 
                               key={slot} 
-                              draggable={!!gear && !isProcessingTx}
-                              onDragStart={(e) => gear && handleDragStart(e, 'equipped', { category: slot })}
-                              title={gear ? slot.toUpperCase() : `EMPTY ${slot.toUpperCase()}`}
-                              style={{ aspectRatio: '1/1', border: '1px dashed rgba(255,255,255,0.2)', background: 'rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: gear ? 'grab' : 'default', position: 'relative' }}
+                              draggable={hasAnyGear && !isProcessingTx}
+                              onDragStart={(e) => hasAnyGear && handleDragStart(e, 'equipped', { category: slot })}
+                              title={hasAnyGear ? (gear.isNone ? `GHOST TRAIT [${slot.toUpperCase()}]` : slot.toUpperCase()) : `EMPTY ${slot.toUpperCase()}`}
+                              style={{ aspectRatio: '1/1', border: '1px dashed rgba(255,255,255,0.2)', background: 'rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: hasAnyGear ? 'grab' : 'default', position: 'relative' }}
                             >
-                              {gear && gear.imageUrl.toLowerCase() !== 'none' ? (
-                                <img src={gear.imageUrl} style={{ width: '90%', height: '90%', objectFit: 'contain' }} alt={slot} />
+                              {hasAnyGear ? (
+                                gear.isNone ? (
+                                  <span style={{ fontSize: '10px', color: '#ff3333', fontWeight: 'bold' }}>[ GHOST ]</span>
+                                ) : (
+                                  <img src={gear.imageUrl} style={{ width: '90%', height: '90%', objectFit: 'contain' }} alt={slot} />
+                                )
                               ) : (
-                                <span style={{ fontSize: '9px', color: '#555' }}>{slot.substring(0,3).toUpperCase()}</span>
+                                <span style={{ fontSize: '9px', color: '#555' }}>{slotLabels[slot]}</span>
                               )}
                             </div>
                           );
@@ -901,12 +957,13 @@ function TerminalUI() {
                       </div>
                     </div>
 
+                    {/* // INVENTORY GRID // */}
                     <div 
                       onDragOver={(e) => e.preventDefault()}
                       onDrop={handleDropOnInventory}
                       style={{ background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.2)', padding: '1rem', backdropFilter: 'blur(12px)', borderRadius: '2px', minHeight: '150px' }}
                     >
-                      <h3 style={{ margin: '0 0 1rem 0', color: '#E5E5E5', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.1em', fontSize: '0.85rem' }}>// INVENTORY (DRAG TO CHARACTER)</h3>
+                      <h3 style={{ margin: '0 0 1rem 0', color: '#E5E5E5', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.1em', fontSize: '0.85rem' }}>// INVENTORY (DRAG TO EQUIP)</h3>
                       {!looseTraits?.data?.length ? (
                         <p style={{ color: '#555', fontSize: '0.75rem', textAlign: 'center' }}>[ INVENTORY EMPTY ]</p>
                       ) : (
@@ -915,18 +972,44 @@ function TerminalUI() {
                             const fields = (item.data?.content as any)?.fields;
                             const rawCat = fields?.category || fields?.Category || fields?.name;
                             const cat = normalizeCategory(rawCat);
-                            const isSlotOccupied = cat ? !!equippedGear[cat] : false;
+                            const traitName = fields?.name || '';
                             const imgUrl = fields?.image_url || fields?.url || '';
+
+                            const urlStr = String(imgUrl).toLowerCase();
+                            const nameStr = String(traitName).toLowerCase();
+                            
+                            const isNone = 
+                              urlStr === 'none' || 
+                              urlStr === 'null' || 
+                              urlStr === '' || 
+                              nameStr.includes('none') || 
+                              nameStr.includes('null');
+
+                            // INVENTORY FILTER: Do not show useless Ghost traits in the armory
+                            if (isNone) return null;
+
+                            const isSlotOccupied = cat ? !!equippedGear[cat] && !equippedGear[cat].isNone : false;
 
                             return (
                               <div 
                                 key={idx} 
                                 draggable={!isSlotOccupied && !isProcessingTx && !!cat}
                                 onDragStart={(e) => cat && handleDragStart(e, 'loose', { objectId: item.data!.objectId, category: cat })}
-                                style={{ aspectRatio: '1/1', border: isSlotOccupied ? '1px solid rgba(255,51,51,0.3)' : '1px solid rgba(255,255,255,0.2)', background: isSlotOccupied ? 'rgba(255,0,0,0.05)' : 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: isSlotOccupied ? 'not-allowed' : 'grab', opacity: isSlotOccupied ? 0.3 : 1 }}
+                                style={{ aspectRatio: '1/1', border: isSlotOccupied ? '1px solid rgba(255,51,51,0.3)' : '1px solid rgba(255,255,255,0.2)', background: isSlotOccupied ? 'rgba(255,0,0,0.05)' : 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: isSlotOccupied ? 'not-allowed' : 'grab', opacity: isSlotOccupied ? 0.3 : 1, position: 'relative' }}
                                 title={isSlotOccupied ? 'SLOT OCCUPIED' : cat?.toUpperCase()}
                               >
                                 {imgUrl ? <img src={imgUrl} style={{ width: '90%', height: '90%', objectFit: 'contain', pointerEvents: 'none' }} alt="Trait" /> : <span style={{ fontSize: '9px', color: '#555' }}>IMG</span>}
+                                
+                                {!isSlotOccupied && (
+                                  <button 
+                                    onClick={(e) => { e.stopPropagation(); handleTransfer(item.data!.objectId, 'TRAIT'); }}
+                                    disabled={isProcessingTx || !transferAddress.trim()}
+                                    style={{ position: 'absolute', top: '2px', right: '2px', background: (!transferAddress.trim() || isProcessingTx) ? 'rgba(255,51,51,0.2)' : 'rgba(255,51,51,0.8)', border: 'none', color: '#fff', fontSize: '8px', cursor: (!transferAddress.trim() || isProcessingTx) ? 'not-allowed' : 'pointer', padding: '2px 4px', zIndex: 10, borderRadius: '2px', fontWeight: 'bold' }}
+                                    title={!transferAddress.trim() ? "ENTER TRANSFER ADDRESS FIRST" : "TRANSFER TRAIT"}
+                                  >
+                                    SEND
+                                  </button>
+                                )}
                               </div>
                             );
                           })}

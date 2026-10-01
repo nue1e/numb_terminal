@@ -463,7 +463,7 @@
       "Outfits": "https://numbpolys.wal.app/Outfits/The%20Royal%20Don%20Corrupted%20Suit%230.5.png",
       "Jeweleries": "https://numbpolys.wal.app/Jeweleries/24k%20Polished%20Gold%20Earrings%232.5.png",
       "Eyewear": "https://numbpolys.wal.app/Eyewear/Wayfarers%20(Gold%20Frame)%231.5.png",
-      "Headwear": "https://numbpolys.wal.app/Headwear/The%20Sovereign%20Gold%20Crown%230.5.png"
+      "Headwear": "https://numbpolys.wal.app/Headwear/The%20Sovereign%20Gold%20Crown%230.75.png"
     },
     "id": 13
   },
@@ -2691,11 +2691,11 @@
       "Background": "https://numbpolys.wal.app/Background/Charcoal%20Seamless%2320.png",
       "Base Body": "https://numbpolys.wal.app/Base%20Body/Bioluminescent%20Cyan%231.5.png",
       "Face": "https://numbpolys.wal.app/Face/Neon%20Cyan%2313.5.png",
-      "Eye": "https://numbpolys.wal.app/Eye/Cyber%20Cyan%20Glow%237.5.png",
-      "Outfits": "https://numbpolys.wal.app/Outfits/Monolith%20Grey%20Varsity%20Jacket%235.png",
+      "Eye": "https://numbpolys.wal.app/Eye/Cyber%20Cyan%237.5.png",
+      "Outfits": "https://numbpolys.wal.app/Outfits/Monolith%20Grey%20Varsity%20Jacket%230.4.png",
       "Jeweleries": "https://numbpolys.wal.app/Jeweleries/Cyan%20Earrings%231.png",
-      "Eyewear": "https://numbpolys.wal.app/Eyewear/Cyan%20Visor%232.5.png",
-      "Headwear": "https://numbpolys.wal.app/Headwear/Holographic%20Glass%20Crown%231.png"
+      "Eyewear": "https://numbpolys.wal.app/Eyewear/Cyan%20Visor%237.png",
+      "Headwear": "https://numbpolys.wal.app/Headwear/Holographic%20Glass%20Crown%230.25.png"
     },
     "id": 75
   },
@@ -2910,8 +2910,8 @@
       "Eye": "https://numbpolys.wal.app/Eye/Amethyst%20Purple%231.png",
       "Outfits": "https://numbpolys.wal.app/Outfits/Snow%20Drift%20Puffer%231.35.png",
       "Jeweleries": "https://numbpolys.wal.app/Jeweleries/Silver%20Earrings%2314.png",
-      "Eyewear": "https://numbpolys.wal.app/Eyewear/Cyan%20Visor%232.5.png",
-      "Headwear": "https://numbpolys.wal.app/Headwear/Platinum%20Ice%20Crown%231.png"
+      "Eyewear": "https://numbpolys.wal.app/Eyewear/Cyan%20Visor%237.png",
+      "Headwear": "https://numbpolys.wal.app/Headwear/Platinum%20Ice%20Crown%230.75.png"
     },
     "id": 81
   },
@@ -3088,10 +3088,10 @@
       "Base Body": "https://numbpolys.wal.app/Base%20Body/Gold-Veined%20Marble%230.5.png",
       "Face": "https://numbpolys.wal.app/Face/Electric%20Gold%234.5.png",
       "Eye": "https://numbpolys.wal.app/Eye/Electric%20Gold%234.5.png",
-      "Outfits": "https://numbpolys.wal.app/Outfits/Emerald%20Lord%20Corrupted%20Suit%230.5.png",
+      "Outfits": "https://numbpolys.wal.app/Outfits/Emerald%20Lord%20Corrupted%20Suit%230.2.png",
       "Jeweleries": "https://numbpolys.wal.app/Jeweleries/Emerald%20Earrings%235.png",
       "Eyewear": "https://numbpolys.wal.app/Eyewear/Gold%20%26%20Black%20Eye%20Patch%231.5.png",
-      "Headwear": "https://numbpolys.wal.app/Headwear/Emerald%20King%20Crown%230.5.png"
+      "Headwear": "https://numbpolys.wal.app/Headwear/Emerald%20King%20Crown%230.75.png"
     },
     "id": 86
   },
@@ -3552,14 +3552,14 @@
       "Headwear": "Stealth Tech Snapback#3.5.png"
     },
     "walrus_urls": {
-      "Background": "https://numbpolys.wal.app/Background/Oxblood%20Crimson%234.5.png",
+      "Background": "https://numbpolys.wal.app/Background/Oxblood%20%20Crimson%234.5.png",
       "Base Body": "https://numbpolys.wal.app/Base%20Body/Earless%20Ash%20Marble%239.5.png",
       "Face": "https://numbpolys.wal.app/Face/Void%20Black%2334.png",
       "Eye": "https://numbpolys.wal.app/Eye/Void%20Black%2354.png",
-      "Outfits": "https://numbpolys.wal.app/Outfits/Cyber%20Vantablack%20Corrupted%20Suit%230.5.png",
+      "Outfits": "https://numbpolys.wal.app/Outfits/Cyber%20Vantablack%20Corrupted%20Suit%230.2.png",
       "Jeweleries": "https://numbpolys.wal.app/Jeweleries/Black%20Septum%239.png",
-      "Eyewear": "https://numbpolys.wal.app/Eyewear/Pure%20Black%20Eye%20Patch%233.5.png",
-      "Headwear": "https://numbpolys.wal.app/Headwear/Stealth%20Tech%20Snapback%233.5.png"
+      "Eyewear": "https://numbpolys.wal.app/Eyewear/Pure%20Black%20Eye%20Patch%235.png",
+      "Headwear": "https://numbpolys.wal.app/Headwear/Stealth%20Tech%20Snapback%231.5.png"
     },
     "id": 99
   },
@@ -7695,11 +7695,11 @@
       "Background": "https://numbpolys.wal.app/Background/Emerald%20Shadow%235.5.png",
       "Base Body": "https://numbpolys.wal.app/Base%20Body/Earless%20Compressed%20Bark%233.png",
       "Face": "https://numbpolys.wal.app/Face/Bone%2320.png",
-      "Eye": "https://numbpolys.wal.app/Eye/Neon%20Green%20Glow%236.png",
-      "Outfits": "https://numbpolys.wal.app/Outfits/Woodland%20Tactical%20Chest%20Rig%231.5.png",
+      "Eye": "https://numbpolys.wal.app/Eye/Neon%20Green%236.png",
+      "Outfits": "https://numbpolys.wal.app/Outfits/Woodland%20Tactical%20Chest%20Rig%231.35.png",
       "Jeweleries": "https://numbpolys.wal.app/Jeweleries/Silver%20Septum%2310.png",
       "Eyewear": "https://numbpolys.wal.app/Eyewear/Woodland%20Camo%20Eye%20Patch%235.png",
-      "Headwear": "https://numbpolys.wal.app/Headwear/Woodland%20Camo%20Snapback%233.png"
+      "Headwear": "https://numbpolys.wal.app/Headwear/Woodland%20Camo%20Snapback%231.5.png"
     },
     "id": 214
   },
@@ -8524,10 +8524,10 @@
       "Base Body": "https://numbpolys.wal.app/Base%20Body/Sparkling%20Charcoal%236.5.png",
       "Face": "https://numbpolys.wal.app/Face/Bone%2320.png",
       "Eye": "https://numbpolys.wal.app/Eye/Pure%20White%20Glow%2315.png",
-      "Outfits": "https://numbpolys.wal.app/Outfits/Tactical%20Olive%20Hoodie%232.5.png",
+      "Outfits": "https://numbpolys.wal.app/Outfits/Tactical%20Olive%20Hoodie%231.8.png",
       "Jeweleries": "https://numbpolys.wal.app/Jeweleries/Black%20Septum%239.png",
       "Eyewear": "https://numbpolys.wal.app/Eyewear/Wayfarers%20(Black%20Frame)%235.png",
-      "Headwear": "https://numbpolys.wal.app/Headwear/Tactical%20Olive%20Beanie%233.png"
+      "Headwear": "https://numbpolys.wal.app/Headwear/Tactical%20Olive%20Beanie%232.png"
     },
     "id": 237
   },
@@ -13491,11 +13491,11 @@
       "Background": "https://numbpolys.wal.app/Background/Brushed%20Steel%238.png",
       "Base Body": "https://numbpolys.wal.app/Base%20Body/Bright%20Silver%236.5.png",
       "Face": "https://numbpolys.wal.app/Face/Neon%20Cyan%2313.5.png",
-      "Eye": "https://numbpolys.wal.app/Eye/Cyber%20Cyan%20Glow%237.5.png",
-      "Outfits": "https://numbpolys.wal.app/Outfits/Acid%20Wash%20Denim%20Hoodie%234.5.png",
+      "Eye": "https://numbpolys.wal.app/Eye/Cyber%20Cyan%237.5.png",
+      "Outfits": "https://numbpolys.wal.app/Outfits/Acid%20Wash%20Denim%20Hoodie%231.8.png",
       "Jeweleries": "https://numbpolys.wal.app/Jeweleries/Silver%20Earrings%2314.png",
       "Eyewear": "https://numbpolys.wal.app/Eyewear/Wayfarers%20(Black%20Frame)%235.png",
-      "Headwear": "https://numbpolys.wal.app/Headwear/Acid%20Wash%20Denim%20Snapback%234.5.png"
+      "Headwear": "https://numbpolys.wal.app/Headwear/Acid%20Wash%20Denim%20Snapback%233.png"
     },
     "id": 375
   },
@@ -20335,7 +20335,7 @@
       "Outfits": "https://numbpolys.wal.app/Outfits/Hazard%20Cyber%20Chest%20Rig%231.5.png",
       "Jeweleries": "https://numbpolys.wal.app/Jeweleries/Black%20Earrings%2310.png",
       "Eyewear": "https://numbpolys.wal.app/Eyewear/Cyber%20Visor%231.png",
-      "Headwear": "https://numbpolys.wal.app/Headwear/Hazard%20Orange%20Bucket%20Hat%232.5.png"
+      "Headwear": "https://numbpolys.wal.app/Headwear/Hazard%20Orange%20Bucket%20Hat%231.5.png"
     },
     "id": 565
   },
@@ -22096,10 +22096,10 @@
       "Base Body": "https://numbpolys.wal.app/Base%20Body/Textured%20Vantablack%236.5.png",
       "Face": "https://numbpolys.wal.app/Face/Bone%2320.png",
       "Eye": "https://numbpolys.wal.app/Eye/Pure%20White%20Glow%2315.png",
-      "Outfits": "https://numbpolys.wal.app/Outfits/Desert%20Sand%20Camo%20Chest%20Rig%232.5.png",
+      "Outfits": "https://numbpolys.wal.app/Outfits/Desert%20Sand%20Camo%20Chest%20Rig%231.35.png",
       "Jeweleries": "https://numbpolys.wal.app/Jeweleries/Gold%20Septum%232.png",
       "Eyewear": "https://numbpolys.wal.app/Eyewear/Desert%20Camo%20Eye%20Patch%235.png",
-      "Headwear": "https://numbpolys.wal.app/Headwear/Desert%20Sand%20Snapback%233.png"
+      "Headwear": "https://numbpolys.wal.app/Headwear/Desert%20Sand%20Snapback%231.5.png"
     },
     "id": 614
   },
@@ -22672,10 +22672,10 @@
       "Base Body": "https://numbpolys.wal.app/Base%20Body/Earless%20Carbon%20Weave%231.5.png",
       "Face": "https://numbpolys.wal.app/Face/Earthy%20Bronze%2327.png",
       "Eye": "https://numbpolys.wal.app/Eye/Crimson%20Red%2312.png",
-      "Outfits": "https://numbpolys.wal.app/Outfits/Crimson%20Syndicate%20Corrupted%20Suit%230.5.png",
+      "Outfits": "https://numbpolys.wal.app/Outfits/Crimson%20Syndicate%20Corrupted%20Suit%230.2.png",
       "Jeweleries": "https://numbpolys.wal.app/Jeweleries/Crimson%20Septum%234.png",
       "Eyewear": "https://numbpolys.wal.app/Eyewear/Black%20%26%20White%20Eye%20Patch%233.png",
-      "Headwear": "https://numbpolys.wal.app/Headwear/Acid%20Wash%20Denim%20Snapback%234.5.png"
+      "Headwear": "https://numbpolys.wal.app/Headwear/Acid%20Wash%20Denim%20Snapback%233.png"
     },
     "id": 630
   },

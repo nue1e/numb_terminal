@@ -5,7 +5,7 @@ import {
   useSuiClientQuery
 } from '@mysten/dapp-kit';
 import { Transaction } from '@mysten/sui/transactions';
-import { LATEST_PACKAGE_ID, REGISTRY_ID, ADMIN_CAP_ID } from './config';
+import { LATEST_PACKAGE_ID, REGISTRY_ID, ADMIN_CAP_ID, V3_STATE_ID } from './config';
 import registryData from './registry.json';
 
 export function AdminDashboard() {
@@ -14,250 +14,281 @@ export function AdminDashboard() {
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [txMessage, setTxMessage] = useState<string | null>(null);
-  const [newPriceSui, setNewPriceSui] = useState<string>('5');
   
-  // Custom Whitelist State
+  // Economics State
+  const [pubPriceSui, setPubPriceSui] = useState<string>('5');
+  const [gtdPriceSui, setGtdPriceSui] = useState<string>('2.5');
+  const [fcfsPriceSui, setFcfsPriceSui] = useState<string>('3.5');
+  const [royaltyBps, setRoyaltyBps] = useState<string>('500');
+  const [royaltyMode, setRoyaltyMode] = useState<string>('0');
+  const [treasuryWallet, setTreasuryWallet] = useState<string>('');
+
+  // Whitelist State
   const [wlAddresses, setWlAddresses] = useState<string>('');
+  const [wlTier, setWlTier] = useState<'GTD' | 'FCFS'>('GTD');
+
+  // God Mode State
+  const [overrideType, setOverrideType] = useState<'TRAIT' | 'BASE'>('TRAIT');
+  const [targetId, setTargetId] = useState('');
+  const [traitCategory, setTraitCategory] = useState('Headwear');
+  const [newUrl, setNewUrl] = useState('');
+  const [newLoreName, setNewLoreName] = useState('');
 
   const displayMessage = (msg: string) => {
     setTxMessage(msg);
-    setTimeout(() => setTxMessage(null), 6000);
+    setTimeout(() => setTxMessage(null), 12000);
   };
 
   const { data: registryObj, refetch: refetchRegistry, isLoading, isError } = useSuiClientQuery(
-    'getObject',
-    {
-      id: REGISTRY_ID,
-      options: { showContent: true },
-    }
+    'getObject', { id: REGISTRY_ID, options: { showContent: true } }
+  );
+
+  const { data: v3StateObj, refetch: refetchV3 } = useSuiClientQuery(
+    'getObject', { id: V3_STATE_ID, options: { showContent: true } },
+    { enabled: !!V3_STATE_ID }
   );
 
   const fields = (registryObj?.data?.content as any)?.fields;
   const adminMinted = fields?.admin_minted !== undefined ? parseInt(fields.admin_minted) : null;
   const currentPhase = fields?.phase !== undefined ? Number(fields.phase) : null;
-  const currentPriceMist = fields?.mint_price;
-  const currentPriceSui = currentPriceMist ? Number(currentPriceMist) / 1_000_000_000 : null;
   
   const rawBalance = fields?.balance;
-  const treasuryMist = rawBalance?.fields?.value ? rawBalance.fields.value : (typeof rawBalance === 'string' ? rawBalance : "0");
-  const treasurySui = Number(treasuryMist) / 1_000_000_000;
+  const treasurySui = (rawBalance?.fields?.value ? Number(rawBalance.fields.value) : Number(rawBalance || 0)) / 1_000_000_000;
 
-  // Phase Controls
+  const v3Fields = (v3StateObj?.data?.content as any)?.fields;
+  const stakingActive = v3Fields?.staking_active;
+
+  // --- 1. SYSTEM INITIALIZATION ---
+  const handleInitializeV3 = () => {
+    setIsProcessing(true);
+    displayMessage(`[ INITIALIZING V3 STATE... SIGN IN WALLET ]`);
+    const tx = new Transaction();
+    tx.moveCall({
+      target: `${LATEST_PACKAGE_ID}::operative::initialize_v3`,
+      arguments: [tx.object(ADMIN_CAP_ID)],
+    });
+    signAndExecuteTransaction({ transaction: tx }, {
+      onSuccess: (result) => {
+        displayMessage(`[ SUCCESS: V3 STATE CREATED. CHECK EXPLORER FOR NEW OBJECT ID ]`);
+        setIsProcessing(false);
+      },
+      onError: (err) => {
+        console.error(err);
+        displayMessage(`[ ERROR: V3 INITIALIZATION FAILED. ${err.message} ]`);
+        setIsProcessing(false);
+      },
+    });
+  };
+
+  // --- 2. PHASE CONTROLS ---
   const handleUpdatePhase = (phase: number) => {
     setIsProcessing(true);
-    displayMessage(`[ TRANSMITTING PHASE OVERRIDE (${phase})... SIGN IN WALLET ]`);
-
+    displayMessage(`[ TRANSMITTING PHASE OVERRIDE (${phase})... ]`);
     const tx = new Transaction();
     tx.moveCall({
       target: `${LATEST_PACKAGE_ID}::operative::update_phase`,
-      arguments: [
-        tx.object(ADMIN_CAP_ID),
-        tx.object(REGISTRY_ID),
-        tx.pure.u8(phase)
-      ],
+      arguments: [tx.object(ADMIN_CAP_ID), tx.object(REGISTRY_ID), tx.pure.u8(phase)],
     });
-
     signAndExecuteTransaction({ transaction: tx }, {
       onSuccess: () => {
-        displayMessage(`[ SUCCESS: PHASE SWITCHED TO ${phase === 0 ? 'PAUSED' : phase === 1 ? 'WHITELIST' : 'PUBLIC'} ]`);
+        displayMessage(`[ SUCCESS: PHASE SWITCHED TO ${['PAUSED', 'GTD', 'FCFS', 'PUBLIC'][phase]} ]`);
         refetchRegistry();
         setIsProcessing(false);
       },
-      onError: (err) => {
-        console.error(err);
-        displayMessage(`[ ERROR: PHASE UPDATE FAILED ]`);
-        setIsProcessing(false);
+      onError: (err) => { 
+        displayMessage(`[ ERROR: PHASE UPDATE FAILED. ${err.message} ]`); 
+        setIsProcessing(false); 
       },
     });
   };
 
-  // Price Controls
-  const handleUpdatePrice = () => {
-    const mistValue = Math.floor(parseFloat(newPriceSui) * 1_000_000_000);
-    if (isNaN(mistValue) || mistValue <= 0) {
-      displayMessage(`[ ERROR: INVALID SUI PRICE ]`);
-      return;
-    }
+  // --- 3. DYNAMIC ECONOMICS ---
+  const handleUpdateEconomics = () => {
+    const pubMist = Math.floor(parseFloat(pubPriceSui) * 1_000_000_000);
+    const gtdMist = Math.floor(parseFloat(gtdPriceSui) * 1_000_000_000);
+    const fcfsMist = Math.floor(parseFloat(fcfsPriceSui) * 1_000_000_000);
+    const recipient = treasuryWallet || account?.address;
+
+    if (!recipient) return displayMessage(`[ ERROR: NO RECIPIENT WALLET FOUND ]`);
 
     setIsProcessing(true);
-    displayMessage(`[ UPDATING PRICE TO ${newPriceSui} SUI... SIGN IN WALLET ]`);
+    displayMessage(`[ SYNCING GLOBAL ECONOMICS... ]`);
 
     const tx = new Transaction();
     tx.moveCall({
-      target: `${LATEST_PACKAGE_ID}::operative::update_price`,
-      arguments: [
-        tx.object(ADMIN_CAP_ID),
-        tx.object(REGISTRY_ID),
-        tx.pure.u64(mistValue)
-      ],
+      target: `${LATEST_PACKAGE_ID}::operative::update_public_price`,
+      arguments: [tx.object(ADMIN_CAP_ID), tx.object(REGISTRY_ID), tx.pure.u64(pubMist)],
     });
-
-    signAndExecuteTransaction({ transaction: tx }, {
-      onSuccess: () => {
-        displayMessage(`[ SUCCESS: MINT PRICE SET TO ${newPriceSui} SUI ]`);
-        refetchRegistry();
-        setIsProcessing(false);
-      },
-      onError: (err) => {
-        console.error(err);
-        displayMessage(`[ ERROR: PRICE UPDATE FAILED ]`);
-        setIsProcessing(false);
-      },
-    });
-  };
-
-  // Treasury Withdrawal
-  const handleWithdraw = () => {
-    setIsProcessing(true);
-    displayMessage(`[ WITHDRAWING TREASURY... SIGN IN WALLET ]`);
-
-    const tx = new Transaction();
     tx.moveCall({
-      target: `${LATEST_PACKAGE_ID}::operative::withdraw_funds`,
+      target: `${LATEST_PACKAGE_ID}::operative::admin_update_v3_state`,
       arguments: [
-        tx.object(ADMIN_CAP_ID),
-        tx.object(REGISTRY_ID)
+        tx.object(ADMIN_CAP_ID), tx.object(V3_STATE_ID),
+        tx.pure.u64(gtdMist), tx.pure.u64(fcfsMist),
+        tx.pure.u64(Number(royaltyBps)), tx.pure.u8(Number(royaltyMode)),
+        tx.pure.address(recipient)
       ],
     });
 
     signAndExecuteTransaction({ transaction: tx }, {
       onSuccess: () => {
-        displayMessage(`[ SUCCESS: TREASURY TRANSFERRED TO CREATOR WALLET ]`);
-        refetchRegistry();
-        setIsProcessing(false);
+        displayMessage(`[ SUCCESS: ECONOMICS & ROYALTIES SYNCED ]`);
+        refetchRegistry(); refetchV3(); setIsProcessing(false);
       },
-      onError: (err) => {
-        console.error(err);
-        displayMessage(`[ ERROR: WITHDRAWAL FAILED ]`);
-        setIsProcessing(false);
+      onError: (err) => { 
+        console.error(err); 
+        displayMessage(`[ ERROR: ECONOMIC SYNC FAILED. ${err.message} ]`); 
+        setIsProcessing(false); 
       },
     });
   };
 
-  // Advanced Custom Whitelist Airdrop
-  const handleIssueWhitelist = () => {
+  // --- 4. BATCH WHITELIST DISPATCHER ---
+  const handleBatchWhitelist = () => {
     const lines = wlAddresses.split('\n');
-    const airdropList: { address: string; count: number }[] = [];
+    const airdropArray: string[] = [];
 
     for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      
-      // Matches the 66-character 0x address, and looks for an optional number after it
-      const match = trimmed.match(/(0x[a-fA-F0-9]{64})[\s,:=]*(\d+)?/);
+      const match = line.trim().match(/(0x[a-fA-F0-9]{64})[\s,:=]*(\d+)?/);
       if (match) {
-        const address = match[1];
-        const count = match[2] ? parseInt(match[2]) : 1; // Defaults to 1 ticket if no number is provided
-        airdropList.push({ address, count });
+        const count = match[2] ? parseInt(match[2]) : 1;
+        for (let i = 0; i < count; i++) airdropArray.push(match[1]);
       }
     }
 
-    if (airdropList.length === 0) {
-      displayMessage(`[ ERROR: NO VALID SUI ADDRESSES FORMATTED CORRECTLY ]`);
-      return;
-    }
-
-    const totalTickets = airdropList.reduce((sum, item) => sum + item.count, 0);
+    if (airdropArray.length === 0) return displayMessage(`[ ERROR: NO VALID SUI ADDRESSES ]`);
 
     setIsProcessing(true);
-    displayMessage(`[ AIRDROPPING ${totalTickets} TICKETS TO ${airdropList.length} WALLETS... SIGN IN WALLET ]`);
+    displayMessage(`[ BATCH MINTING ${airdropArray.length} ${wlTier} TICKETS... ]`);
 
     const tx = new Transaction();
+    const targetFunc = wlTier === 'GTD' ? 'batch_issue_gtd' : 'batch_issue_fcfs';
     
-    for (const item of airdropList) {
-      for (let i = 0; i < item.count; i++) {
-        tx.moveCall({
-          target: `${LATEST_PACKAGE_ID}::operative::issue_whitelist_ticket`,
-          arguments: [
-            tx.object(ADMIN_CAP_ID),
-            tx.pure.address(item.address)
-          ],
-        });
-      }
-    }
+    tx.moveCall({
+      target: `${LATEST_PACKAGE_ID}::operative::${targetFunc}`,
+      arguments: [tx.object(ADMIN_CAP_ID), tx.pure.vector('address', airdropArray)],
+    });
 
     signAndExecuteTransaction({ transaction: tx }, {
       onSuccess: () => {
-        displayMessage(`[ SUCCESS: ${totalTickets} TICKETS SECURELY AIRDROPPED ]`);
-        setWlAddresses('');
-        setIsProcessing(false);
+        displayMessage(`[ SUCCESS: ${airdropArray.length} ${wlTier} TICKETS AIRDROPPED ]`);
+        setWlAddresses(''); setIsProcessing(false);
       },
-      onError: (err) => {
-        console.error(err);
-        displayMessage(`[ ERROR: AIRDROP FAILED ]`);
-        setIsProcessing(false);
+      onError: (err) => { 
+        console.error(err); 
+        displayMessage(`[ ERROR: AIRDROP FAILED. ${err.message} ]`); 
+        setIsProcessing(false); 
       },
     });
   };
 
-  // Batch Reserve Mint
+  // --- 5. GOD MODE OVERRIDES (STREAMLINED) ---
+  const handleGodMode = async () => {
+    const cleanTargetId = targetId.trim();
+    const cleanCategory = traitCategory.trim();
+    const cleanLoreName = newLoreName.trim();
+    const cleanUrl = newUrl.trim();
+
+    if (!cleanTargetId.startsWith('0x') || cleanTargetId.length !== 66) {
+      return displayMessage(`[ ERROR: INVALID OPERATIVE ID (Must be 66 characters starting with 0x) ]`);
+    }
+    
+    setIsProcessing(true);
+    displayMessage(`[ PREPARING TX: Awaiting Wallet Signature... ]`);
+
+    try {
+      const tx = new Transaction();
+      
+      if (overrideType === 'TRAIT') {
+        tx.moveCall({
+          target: `${LATEST_PACKAGE_ID}::operative::admin_update_trait_image`,
+          arguments: [tx.object(ADMIN_CAP_ID), tx.object(cleanTargetId), tx.pure.string(cleanCategory), tx.pure.string(cleanUrl)],
+        });
+      } else {
+        tx.moveCall({
+          target: `${LATEST_PACKAGE_ID}::operative::admin_update_operative_metadata`,
+          arguments: [tx.object(ADMIN_CAP_ID), tx.object(cleanTargetId), tx.pure.string(cleanLoreName), tx.pure.string(cleanUrl)],
+        });
+      }
+
+      signAndExecuteTransaction({ transaction: tx }, {
+        onSuccess: () => {
+          displayMessage(`[ SUCCESS: METADATA PERMANENTLY REWRITTEN ]`);
+          setNewUrl(''); setIsProcessing(false);
+        },
+        onError: (err) => { 
+          console.error(err); 
+          displayMessage(`[ ERROR: WALLET REJECTED. ${err.message} ]`); 
+          setIsProcessing(false); 
+        },
+      });
+
+    } catch (err: any) {
+      console.error(err);
+      displayMessage(`[ FATAL SYSTEM ERROR: ${err.message} ]`);
+      setIsProcessing(false);
+    }
+  };
+
+  // --- 6. VAULT & TREASURY ---
+  const handleWithdraw = () => {
+    setIsProcessing(true);
+    const tx = new Transaction();
+    tx.moveCall({ target: `${LATEST_PACKAGE_ID}::operative::withdraw_funds`, arguments: [tx.object(ADMIN_CAP_ID), tx.object(REGISTRY_ID)] });
+    signAndExecuteTransaction({ transaction: tx }, { 
+      onSuccess: () => { displayMessage(`[ TREASURY WITHDRAWN ]`); refetchRegistry(); setIsProcessing(false); }, 
+      onError: (err) => { displayMessage(`[ ERROR: ${err.message} ]`); setIsProcessing(false); } 
+    });
+  };
+
   const handleBatchMintReserve = (count: number) => {
     const current = adminMinted || 0;
-    if (current >= 111) {
-      displayMessage(`[ ERROR: CREATOR VAULT ALREADY DEPLETED (111/111) ]`);
-      return;
-    }
-
-    const availableToMint = Math.min(count, 111 - current);
+    if (current >= 111) return displayMessage(`[ ERROR: VAULT DEPLETED ]`);
+    
     setIsProcessing(true);
-    displayMessage(`[ BUNDLING ${availableToMint} VAULT MINTS... SIGN IN WALLET ]`);
-
     const tx = new Transaction();
+    const available = Math.min(count, 111 - current);
 
-    for (let offset = 0; offset < availableToMint; offset++) {
-      const targetIndex = current + offset;
-      const opData = registryData[targetIndex];
+    for (let offset = 0; offset < available; offset++) {
+      const opData = registryData[current + offset];
       if (!opData) break;
-
       const traitCategories = Object.keys(opData.display_traits).filter(k => k !== 'Rarity Tier');
       const traitNames = traitCategories.map(k => opData.display_traits[k as keyof typeof opData.display_traits]);
-      const traitUrls = traitCategories.map(k => {
-        const rawKey = k === 'Jewelry' ? 'Jeweleries' : k;
-        return (opData.walrus_urls as any)[rawKey] || "None";
-      });
+      const traitUrls = traitCategories.map(k => (opData.walrus_urls as any)[k === 'Jewelry' ? 'Jeweleries' : k] || "None");
 
       tx.moveCall({
         target: `${LATEST_PACKAGE_ID}::operative::claim_reserve`,
         arguments: [
-          tx.object(ADMIN_CAP_ID),
-          tx.object(REGISTRY_ID),
-          tx.pure.string(opData.lore_name),
-          tx.pure.string(opData.display_traits['Rarity Tier']),
-          tx.pure.string((opData.walrus_urls as any)['Base Body'] || ""),
-          tx.pure.vector('string', traitCategories),
-          tx.pure.vector('string', traitNames),
-          tx.pure.vector('string', traitUrls),
+          tx.object(ADMIN_CAP_ID), tx.object(REGISTRY_ID),
+          tx.pure.string(opData.lore_name), tx.pure.string(opData.display_traits['Rarity Tier']), tx.pure.string((opData.walrus_urls as any)['Base Body'] || ""),
+          tx.pure.vector('string', traitCategories), tx.pure.vector('string', traitNames), tx.pure.vector('string', traitUrls),
         ],
       });
     }
-
-    signAndExecuteTransaction({ transaction: tx }, {
-      onSuccess: () => {
-        displayMessage(`[ SUCCESS: ${availableToMint} OPERATIVES SECURED IN WALLET ]`);
-        refetchRegistry();
-        setIsProcessing(false);
-      },
-      onError: (err) => {
-        console.error(err);
-        displayMessage(`[ ERROR: BATCH CLAIM TRANSACTION FAILED ]`);
-        setIsProcessing(false);
-      },
+    signAndExecuteTransaction({ transaction: tx }, { 
+      onSuccess: () => { displayMessage(`[ VAULT CLAIMED ]`); refetchRegistry(); setIsProcessing(false); }, 
+      onError: (err) => { displayMessage(`[ ERROR: ${err.message} ]`); setIsProcessing(false); } 
     });
   };
 
-  if (!account) {
-    return <div style={{ color: '#ff3333', textAlign: 'center', marginTop: '2rem' }}>[ ERROR: WALLET DISCONNECTED ]</div>;
-  }
+  const handleToggleStaking = () => {
+    setIsProcessing(true);
+    const tx = new Transaction();
+    tx.moveCall({
+      target: `${LATEST_PACKAGE_ID}::operative::toggle_staking`,
+      arguments: [tx.object(ADMIN_CAP_ID), tx.object(V3_STATE_ID), tx.pure.bool(!stakingActive)],
+    });
+    signAndExecuteTransaction({ transaction: tx }, { 
+      onSuccess: () => { displayMessage(`[ STAKING TOGGLED ]`); refetchV3(); setIsProcessing(false); }, 
+      onError: (err) => { displayMessage(`[ ERROR: ${err.message} ]`); setIsProcessing(false); } 
+    });
+  };
+
+  if (!account) return <div style={{ color: '#ff3333', textAlign: 'center', marginTop: '2rem' }}>[ ERROR: WALLET DISCONNECTED ]</div>;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', width: '100%', maxWidth: '650px', margin: '0 auto' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', width: '100%', maxWidth: '750px', margin: '0 auto', fontFamily: 'monospace' }}>
       {txMessage && (
-        <div style={{
-          padding: '12px', textAlign: 'center', fontWeight: 'bold',
-          backgroundColor: txMessage.includes('ERROR') ? 'rgba(255, 0, 0, 0.15)' : 'rgba(6, 182, 212, 0.15)',
-          border: `1px solid ${txMessage.includes('ERROR') ? '#ff3333' : '#06B6D4'}`,
-          color: txMessage.includes('ERROR') ? '#ff3333' : '#06B6D4',
-        }}>
+        <div style={{ padding: '12px', textAlign: 'center', fontWeight: 'bold', backgroundColor: txMessage.includes('ERROR') || txMessage.includes('FAILED') || txMessage.includes('REJECTED') ? 'rgba(255, 0, 0, 0.15)' : 'rgba(6, 182, 212, 0.15)', border: `1px solid ${txMessage.includes('ERROR') || txMessage.includes('FAILED') || txMessage.includes('REJECTED') ? '#ff3333' : '#06B6D4'}`, color: txMessage.includes('ERROR') || txMessage.includes('FAILED') || txMessage.includes('REJECTED') ? '#ff3333' : '#06B6D4' }}>
           {txMessage}
         </div>
       )}
@@ -265,120 +296,105 @@ export function AdminDashboard() {
       {/* SYSTEM STATUS */}
       <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.1)', padding: '1.5rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-          <h3 style={{ margin: 0, color: '#06B6D4' }}>// SYSTEM STATUS</h3>
-          <button 
-            onClick={() => refetchRegistry()} 
-            style={{ background: 'transparent', color: '#06B6D4', border: '1px solid #06B6D4', padding: '4px 12px', fontSize: '10px', cursor: 'pointer', fontFamily: 'inherit' }}
-          >
-            [ SYNC CHAIN DATA ]
-          </button>
+          <h3 style={{ margin: 0, color: '#06B6D4' }}>// OMNI-STATE STATUS</h3>
+          <button onClick={() => {refetchRegistry(); refetchV3();}} style={{ background: 'transparent', color: '#06B6D4', border: '1px solid #06B6D4', padding: '4px 12px', fontSize: '10px', cursor: 'pointer', fontFamily: 'inherit' }}>[ RE-SYNC ]</button>
         </div>
         
+        {!V3_STATE_ID && (
+          <button onClick={handleInitializeV3} disabled={isProcessing} style={{ width: '100%', padding: '10px', background: '#ff3333', color: '#000', fontWeight: 'bold', border: 'none', marginBottom: '1rem', cursor: 'pointer' }}>
+            ⚠️ INITIALIZE V3 MASTER STATE (DO THIS ONCE) ⚠️
+          </button>
+        )}
+
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-          <span style={{ color: '#A3A3A3' }}>Active Phase:</span>
-          <span style={{ 
-            fontWeight: 'bold',
-            color: isError ? '#ff3333' : isLoading ? '#888' : currentPhase === 2 ? '#00ff00' : currentPhase === 1 ? '#ffff00' : '#ff3333' 
-          }}>
-            {isError ? 'RPC ERROR (BLOCKED)' : isLoading ? 'SYNCING ON-CHAIN DATA...' : currentPhase === 0 ? 'PAUSED' : currentPhase === 1 ? 'WHITELIST ONLY' : currentPhase === 2 ? 'PUBLIC LIVE' : 'CONNECTING...'}
+          <span style={{ color: '#A3A3A3' }}>Active Mint Phase:</span>
+          <span style={{ fontWeight: 'bold', color: currentPhase === 3 ? '#00ff00' : currentPhase === 1 || currentPhase === 2 ? '#ffff00' : '#ff3333' }}>
+            {currentPhase === 0 ? 'PAUSED' : currentPhase === 1 ? 'GTD LIVE' : currentPhase === 2 ? 'FCFS LIVE' : currentPhase === 3 ? 'PUBLIC LIVE' : 'SYNCING...'}
           </span>
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-          <span style={{ color: '#A3A3A3' }}>Current Mint Price:</span>
-          <span style={{ color: '#E5E5E5' }}>{currentPriceSui !== null ? `${currentPriceSui} SUI` : 'SYNCING...'}</span>
+          <span style={{ color: '#A3A3A3' }}>Staking Protocol:</span>
+          <span style={{ color: stakingActive ? '#00ff00' : '#ff3333' }}>{stakingActive ? 'ONLINE' : 'OFFLINE'}</span>
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-          <span style={{ color: '#A3A3A3' }}>Creator Vault:</span>
-          <span style={{ color: '#E5E5E5' }}>{adminMinted !== null ? `${adminMinted} / 111 SECURED` : 'SYNCING...'}</span>
+          <span style={{ color: '#A3A3A3' }}>Creator Vault / Treasury:</span>
+          <span style={{ color: '#E5E5E5' }}>{adminMinted} / 111 | {treasurySui} SUI</span>
         </div>
       </div>
 
       {/* PHASE CONTROL */}
       <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.1)', padding: '1.5rem' }}>
-        <h3 style={{ margin: '0 0 1rem 0', color: '#06B6D4' }}>// PHASE CONTROL</h3>
-        <div style={{ display: 'flex', gap: '1rem' }}>
-          <button onClick={() => handleUpdatePhase(0)} disabled={isProcessing} style={{ flex: 1, padding: '12px', background: currentPhase === 0 ? 'rgba(255,51,51,0.25)' : 'rgba(255,51,51,0.05)', color: '#ff3333', border: '1px solid #ff3333', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 'bold' }}>
-            PAUSE
-          </button>
-          <button onClick={() => handleUpdatePhase(1)} disabled={isProcessing} style={{ flex: 1, padding: '12px', background: currentPhase === 1 ? 'rgba(255,255,0,0.25)' : 'rgba(255,255,0,0.05)', color: '#ffff00', border: '1px solid #ffff00', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 'bold' }}>
-            WHITELIST
-          </button>
-          <button onClick={() => handleUpdatePhase(2)} disabled={isProcessing} style={{ flex: 1, padding: '12px', background: currentPhase === 2 ? 'rgba(0,255,0,0.25)' : 'rgba(0,255,0,0.05)', color: '#00ff00', border: '1px solid #00ff00', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 'bold' }}>
-            PUBLIC
-          </button>
+        <h3 style={{ margin: '0 0 1rem 0', color: '#06B6D4' }}>// MINT PHASE SWITCHBOARD</h3>
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <button onClick={() => handleUpdatePhase(0)} disabled={isProcessing} style={{ flex: 1, padding: '10px', background: currentPhase === 0 ? 'rgba(255,51,51,0.25)' : 'transparent', color: '#ff3333', border: '1px solid #ff3333', cursor: 'pointer' }}>PAUSE</button>
+          <button onClick={() => handleUpdatePhase(1)} disabled={isProcessing} style={{ flex: 1, padding: '10px', background: currentPhase === 1 ? 'rgba(255,255,0,0.25)' : 'transparent', color: '#ffff00', border: '1px solid #ffff00', cursor: 'pointer' }}>GTD</button>
+          <button onClick={() => handleUpdatePhase(2)} disabled={isProcessing} style={{ flex: 1, padding: '10px', background: currentPhase === 2 ? 'rgba(255,165,0,0.25)' : 'transparent', color: 'orange', border: '1px solid orange', cursor: 'pointer' }}>FCFS</button>
+          <button onClick={() => handleUpdatePhase(3)} disabled={isProcessing} style={{ flex: 1, padding: '10px', background: currentPhase === 3 ? 'rgba(0,255,0,0.25)' : 'transparent', color: '#00ff00', border: '1px solid #00ff00', cursor: 'pointer' }}>PUBLIC</button>
         </div>
       </div>
 
-      {/* ADVANCED WHITELIST DISPATCHER */}
+      {/* DYNAMIC ECONOMICS */}
       <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.1)', padding: '1.5rem' }}>
-        <h3 style={{ margin: '0 0 1rem 0', color: '#06B6D4' }}>// DYNAMIC WHITELIST DISPATCHER</h3>
-        <p style={{ color: '#A3A3A3', fontSize: '0.85rem', marginBottom: '1rem', lineHeight: '1.4' }}>
-          Format: <code>0xAddress, Quantity</code><br/>
-          Example: <code>0xabcd...1234, 5</code> (Grants 5 tickets to that address).<br/>
-          If you just paste addresses, it defaults to 1 ticket each.
-        </p>
+        <h3 style={{ margin: '0 0 1rem 0', color: '#06B6D4' }}>// ECONOMIC & ROYALTY ENGINE</h3>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem', marginBottom: '1rem' }}>
+          <input type="number" value={gtdPriceSui} onChange={e => setGtdPriceSui(e.target.value)} placeholder="GTD Price" style={{ background: 'transparent', border: '1px solid #444', color: '#E5E5E5', padding: '8px' }} />
+          <input type="number" value={fcfsPriceSui} onChange={e => setFcfsPriceSui(e.target.value)} placeholder="FCFS Price" style={{ background: 'transparent', border: '1px solid #444', color: '#E5E5E5', padding: '8px' }} />
+          <input type="number" value={pubPriceSui} onChange={e => setPubPriceSui(e.target.value)} placeholder="Public Price" style={{ background: 'transparent', border: '1px solid #444', color: '#E5E5E5', padding: '8px' }} />
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginBottom: '1rem' }}>
+          <input type="number" value={royaltyBps} onChange={e => setRoyaltyBps(e.target.value)} placeholder="Royalty BPS (500 = 5%)" style={{ background: 'transparent', border: '1px solid #444', color: '#E5E5E5', padding: '8px' }} />
+          <select value={royaltyMode} onChange={e => setRoyaltyMode(e.target.value)} style={{ background: 'transparent', border: '1px solid #444', color: '#E5E5E5', padding: '8px' }}>
+            <option value="0">Mode 0: Minters Receive</option>
+            <option value="1">Mode 1: Treasury Receives</option>
+          </select>
+        </div>
+        <input type="text" value={treasuryWallet} onChange={e => setTreasuryWallet(e.target.value)} placeholder="Treasury Wallet (Defaults to Admin)" style={{ width: '100%', background: 'transparent', border: '1px solid #444', color: '#E5E5E5', padding: '8px', marginBottom: '1rem', boxSizing: 'border-box' }} />
+        <button onClick={handleUpdateEconomics} disabled={isProcessing} style={{ width: '100%', padding: '10px', background: '#E5E5E5', color: '#0D0D11', border: 'none', cursor: 'pointer', fontWeight: 'bold' }}>SYNC GLOBAL ECONOMICS</button>
+      </div>
+
+      {/* DUAL WHITELIST DISPATCHER */}
+      <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.1)', padding: '1.5rem' }}>
+        <h3 style={{ margin: '0 0 1rem 0', color: '#06B6D4' }}>// V3 WHITELIST DISPATCHER</h3>
+        <select value={wlTier} onChange={e => setWlTier(e.target.value as 'GTD' | 'FCFS')} style={{ width: '100%', background: 'transparent', border: '1px solid #444', color: '#E5E5E5', padding: '8px', marginBottom: '0.5rem', boxSizing: 'border-box' }}>
+          <option value="GTD">Target: GTD (Guaranteed) Tickets</option>
+          <option value="FCFS">Target: FCFS (First-Come) Tickets</option>
+        </select>
+        <textarea value={wlAddresses} onChange={e => setWlAddresses(e.target.value)} placeholder="0xAddress, quantity" style={{ width: '100%', height: '100px', background: 'rgba(0,0,0,0.2)', border: '1px solid #444', color: '#E5E5E5', padding: '10px', boxSizing: 'border-box', marginBottom: '0.5rem' }} />
+        <button onClick={handleBatchWhitelist} disabled={isProcessing || !wlAddresses.trim()} style={{ width: '100%', padding: '10px', background: '#06B6D4', color: '#0D0D11', border: 'none', cursor: 'pointer', fontWeight: 'bold' }}>BATCH DROP {wlTier} TICKETS</button>
+      </div>
+
+      {/* GOD MODE OVERRIDE */}
+      <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid #06B6D4', padding: '1.5rem', boxShadow: '0 0 15px rgba(6,182,212,0.1)' }}>
+        <h3 style={{ margin: '0 0 1rem 0', color: '#06B6D4' }}>// GOD MODE: METADATA OVERRIDE</h3>
+        <select value={overrideType} onChange={e => setOverrideType(e.target.value as 'TRAIT' | 'BASE')} style={{ width: '100%', background: 'transparent', border: '1px solid #06B6D4', color: '#E5E5E5', padding: '8px', marginBottom: '0.5rem', boxSizing: 'border-box' }}>
+          <option value="TRAIT">Override Specific Trait Link</option>
+          <option value="BASE">Override Base Body / Lore Name</option>
+        </select>
+        <input type="text" value={targetId} onChange={e => setTargetId(e.target.value)} placeholder="Operative Object ID (0x...)" style={{ width: '100%', background: 'transparent', border: '1px solid #444', color: '#E5E5E5', padding: '8px', marginBottom: '0.5rem', boxSizing: 'border-box' }} />
         
-        <textarea 
-          value={wlAddresses}
-          onChange={(e) => setWlAddresses(e.target.value)}
-          placeholder="0x123...abc, 5&#10;0x456...def, 2&#10;0x789...ghi"
-          style={{ width: '100%', height: '120px', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.2)', color: '#E5E5E5', padding: '10px', fontFamily: 'monospace', fontSize: '0.85rem', marginBottom: '0.5rem', boxSizing: 'border-box' }}
-        />
-
-        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <button onClick={handleIssueWhitelist} disabled={isProcessing || !wlAddresses.trim()} style={{ padding: '10px 24px', background: '#06B6D4', color: '#0D0D11', border: 'none', cursor: (!wlAddresses.trim() || isProcessing) ? 'not-allowed' : 'pointer', fontFamily: 'inherit', fontWeight: 'bold' }}>
-            EXECUTE DYNAMIC AIRDROP
-          </button>
-        </div>
+        {overrideType === 'TRAIT' ? (
+          <input type="text" value={traitCategory} onChange={e => setTraitCategory(e.target.value)} placeholder="Trait Category (e.g. Headwear)" style={{ width: '100%', background: 'transparent', border: '1px solid #444', color: '#E5E5E5', padding: '8px', marginBottom: '0.5rem', boxSizing: 'border-box' }} />
+        ) : (
+          <input type="text" value={newLoreName} onChange={e => setNewLoreName(e.target.value)} placeholder="New Lore Name" style={{ width: '100%', background: 'transparent', border: '1px solid #444', color: '#E5E5E5', padding: '8px', marginBottom: '0.5rem', boxSizing: 'border-box' }} />
+        )}
+        
+        <input type="text" value={newUrl} onChange={e => setNewUrl(e.target.value)} placeholder="New Image URL (Walrus / IPFS)" style={{ width: '100%', background: 'transparent', border: '1px solid #444', color: '#E5E5E5', padding: '8px', marginBottom: '1rem', boxSizing: 'border-box' }} />
+        <button onClick={handleGodMode} disabled={isProcessing} style={{ width: '100%', padding: '10px', background: 'transparent', color: '#06B6D4', border: '1px solid #06B6D4', cursor: 'pointer', fontWeight: 'bold' }}>EXECUTE OVERRIDE</button>
       </div>
 
-      {/* ECONOMICS & TREASURY */}
-      <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.1)', padding: '1.5rem' }}>
-        <h3 style={{ margin: '0 0 1rem 0', color: '#06B6D4' }}>// ECONOMICS & TREASURY</h3>
-        <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem' }}>
-          <input 
-            type="number" 
-            value={newPriceSui} 
-            onChange={(e) => setNewPriceSui(e.target.value)}
-            style={{ flex: 1, background: 'transparent', border: '1px solid rgba(255,255,255,0.2)', color: '#E5E5E5', padding: '10px', fontFamily: 'inherit' }}
-            placeholder="New Price (SUI)"
-          />
-          <button onClick={handleUpdatePrice} disabled={isProcessing} style={{ padding: '10px 20px', background: '#E5E5E5', color: '#0D0D11', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 'bold' }}>
-            UPDATE PRICE
-          </button>
-        </div>
-
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '1.5rem' }}>
-          <div>
-            <div style={{ color: '#A3A3A3', fontSize: '0.85rem' }}>Collected Treasury</div>
-            <div style={{ color: '#00ff00', fontSize: '1.5rem', fontWeight: 'bold' }}>{treasurySui} SUI</div>
-          </div>
-          <button onClick={handleWithdraw} disabled={isProcessing || treasurySui === 0} style={{ padding: '10px 20px', background: 'transparent', color: '#06B6D4', border: '1px solid #06B6D4', cursor: treasurySui === 0 ? 'not-allowed' : 'pointer', fontFamily: 'inherit' }}>
-            WITHDRAW FUNDS
-          </button>
-        </div>
+      {/* QUICK ACTIONS */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+        <button onClick={handleWithdraw} disabled={isProcessing || treasurySui === 0} style={{ padding: '12px', background: 'transparent', color: '#A3A3A3', border: '1px solid #444', cursor: 'pointer' }}>WITHDRAW TREASURY</button>
+        <button onClick={handleToggleStaking} disabled={isProcessing} style={{ padding: '12px', background: 'transparent', color: '#A3A3A3', border: '1px solid #444', cursor: 'pointer' }}>{stakingActive ? 'PAUSE STAKING' : 'ACTIVATE STAKING'}</button>
       </div>
-
-      {/* CREATOR VAULT */}
+      
+      {/* VAULT MINTS */}
       <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.1)', padding: '1.5rem' }}>
-        <h3 style={{ margin: '0 0 1rem 0', color: '#06B6D4' }}>// CREATOR SECURE VAULT (111 TOTAL)</h3>
-        <p style={{ color: '#A3A3A3', fontSize: '0.85rem', marginBottom: '1rem' }}>
-          Mint reserved Operatives (including the 5 Mythics) directly to your admin wallet.
-        </p>
-
-        <div style={{ display: 'flex', gap: '0.75rem' }}>
-          <button onClick={() => handleBatchMintReserve(1)} disabled={isProcessing || (adminMinted ?? 0) >= 111} style={{ flex: 1, padding: '12px', background: 'transparent', color: '#E5E5E5', border: '1px solid rgba(255,255,255,0.3)', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 'bold' }}>
-            MINT 1
-          </button>
-          <button onClick={() => handleBatchMintReserve(5)} disabled={isProcessing || (adminMinted ?? 0) >= 111} style={{ flex: 1, padding: '12px', background: 'transparent', color: '#E5E5E5', border: '1px solid rgba(255,255,255,0.3)', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 'bold' }}>
-            MINT 5
-          </button>
-          <button onClick={() => handleBatchMintReserve(10)} disabled={isProcessing || (adminMinted ?? 0) >= 111} style={{ flex: 1, padding: '12px', background: 'transparent', color: '#E5E5E5', border: '1px solid rgba(255,255,255,0.3)', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 'bold' }}>
-            MINT 10
-          </button>
-          <button onClick={() => handleBatchMintReserve(25)} disabled={isProcessing || (adminMinted ?? 0) >= 111} style={{ flex: 1, padding: '12px', background: 'transparent', color: '#06B6D4', border: '1px solid #06B6D4', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 'bold' }}>
-            MINT 25
-          </button>
+        <h3 style={{ margin: '0 0 1rem 0', color: '#A3A3A3' }}>// ADMIN RESERVE MINTS</h3>
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          {[1, 5, 10, 25].map(num => (
+            <button key={num} onClick={() => handleBatchMintReserve(num)} disabled={isProcessing} style={{ flex: 1, padding: '8px', background: 'transparent', color: '#E5E5E5', border: '1px solid #444', cursor: 'pointer' }}>{num}</button>
+          ))}
         </div>
       </div>
     </div>
