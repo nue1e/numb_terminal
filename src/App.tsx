@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   ConnectButton, 
   useCurrentAccount, 
@@ -42,6 +42,23 @@ const normalizeCategory = (rawCat: string) => {
   if (cat === 'outfit') return 'outfits';
   if (cat === 'eyes') return 'eye';
   return cat;
+};
+
+// --- ROMAN NUMERAL CONVERTER ---
+const toRoman = (num: number): string => {
+  if (num <= 0) return '';
+  const romanMap: [number, string][] = [
+    [10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I']
+  ];
+  let res = '';
+  let n = num;
+  for (const [val, char] of romanMap) {
+    while (n >= val) {
+      res += char;
+      n -= val;
+    }
+  }
+  return res;
 };
 
 // --- MEMOIZED ROLLING THUMBNAIL ---
@@ -264,8 +281,6 @@ function TerminalUI() {
     setMainFailsafe(false);
 
     const cacheKey = `numbpolys_gear_full_${opId}`;
-    
-    // 🔥 AGGRESSIVE CACHE WIPE: Forces truth from the blockchain every time
     sessionStorage.removeItem(cacheKey);
     setEquippedGear({}); 
 
@@ -291,7 +306,6 @@ function TerminalUI() {
             const urlStr = String(rawUrl).toLowerCase();
             const nameStr = String(traitName).toLowerCase();
             
-            // 🚨 GHOST SCANNER: Hunts down nulls, empty strings, and "None" strings
             const isNone = 
               urlStr === 'none' || 
               urlStr === 'null' || 
@@ -350,7 +364,71 @@ function TerminalUI() {
   const activeOpData = displayOperatives.find((op: any) => (op.data?.objectId || op.address) === selectedOpId);
   const activeOpFields = (activeOpData?.data?.content as any)?.fields;
   const baseBodyUrl = activeOpFields?.image_url || activeOpFields?.url || '';
-  const loreName = activeOpFields?.name || activeOpFields?.lore_name || (selectedOpId ? `OPERATIVE // ${selectedOpId.slice(0, 6)}...${selectedOpId.slice(-4)}` : '');
+  
+  // -------------------------------------------------------------
+  // DYNAMIC LOADOUT NAMING LOGIC ([MK I], [MK II], [MK III]...)
+  // -------------------------------------------------------------
+  const rawLoreName = activeOpFields?.name || activeOpFields?.lore_name || (selectedOpId ? `OPERATIVE // ${selectedOpId.slice(0, 6)}...${selectedOpId.slice(-4)}` : '');
+  
+  // Extract absolute base name, stripping any previous MK or list tags
+  const cleanBaseName = rawLoreName
+    .replace(/\s*\[MK\s+[IVXLCDM]+\]/gi, '')
+    .split(' // ')[0]
+    .trim();
+
+  const mintId = activeOpFields?.mint_id !== undefined ? Number(activeOpFields.mint_id) : null;
+
+  // Compute how many traits differ from original mint
+  const modificationCount = useMemo(() => {
+    const stockToken = (registryData as any[]).find((item: any, idx: number) => {
+      if (mintId !== null && idx === mintId) return true;
+      return item.lore_name?.toLowerCase().trim() === cleanBaseName.toLowerCase().trim();
+    });
+
+    if (!stockToken || !stockToken.display_traits) return 0;
+
+    const stockMap: Record<string, string> = {};
+    Object.keys(stockToken.display_traits).forEach((k) => {
+      if (k === 'Rarity Tier') return;
+      const normKey = normalizeCategory(k);
+      let val = stockToken.display_traits[k];
+      if (typeof val === 'string') {
+        if (val.includes('#')) val = val.split('#')[0].trim();
+        val = val.toLowerCase().trim();
+      }
+      if (val && val !== 'none' && val !== 'null') {
+        stockMap[normKey] = val;
+      }
+    });
+
+    const allCategories = ['background', 'face', 'eye', 'outfits', 'jewelries', 'headwear', 'eyewear'];
+    let diffCount = 0;
+
+    for (const cat of allCategories) {
+      const stockVal = stockMap[cat] || 'none';
+      const currentItem = equippedGear[cat];
+      let currentVal = 'none';
+
+      if (currentItem && !currentItem.isNone && currentItem.name) {
+        let cName = currentItem.name;
+        if (typeof cName === 'string') {
+          if (cName.includes('#')) cName = cName.split('#')[0].trim();
+          currentVal = cName.toLowerCase().trim();
+        }
+      }
+
+      if (currentVal !== stockVal) {
+        diffCount++;
+      }
+    }
+
+    return diffCount;
+  }, [cleanBaseName, mintId, equippedGear]);
+
+  // If customized: append [MK <ROMAN>], else retain default title
+  const dynamicDisplayName = modificationCount > 0 
+    ? `${cleanBaseName} [MK ${toRoman(modificationCount)}]` 
+    : cleanBaseName;
 
   const activeLayers = [
     equippedGear['background']?.isNone ? null : equippedGear['background']?.imageUrl,
@@ -391,103 +469,159 @@ function TerminalUI() {
 
   const isMainRolling = !mainFailsafe && (isLoadingSlots || !areMainImagesReady);
 
-  const handleEquip = (traitId: string, category: string) => {
+  // -------------------------------------------------------------
+  // DYNAMIC SNAPSHOT GENERATOR
+  // -------------------------------------------------------------
+  const generateAndUploadSnapshot = async (layersToRender: (string | null | undefined)[]): Promise<string> => {
+    const validUrls = layersToRender.filter(url => url) as string[];
+    const canvas = document.createElement('canvas');
+    const size = 1000; 
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error("Canvas context failed");
+
+    for (const url of validUrls) {
+      await new Promise<void>((resolve) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => { ctx.drawImage(img, 0, 0, size, size); resolve(); };
+        img.onerror = () => {
+          const fallbackImg = new Image();
+          fallbackImg.crossOrigin = 'anonymous';
+          fallbackImg.onload = () => { ctx.drawImage(fallbackImg, 0, 0, size, size); resolve(); };
+          fallbackImg.onerror = () => resolve();
+          fallbackImg.src = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+        };
+        img.src = `https://wsrv.nl/?url=${encodeURIComponent(url)}&output=png`;
+      });
+    }
+
+    return new Promise<string>((resolve, reject) => {
+      canvas.toBlob(async (blob) => {
+        if (!blob) return reject("Blob encoding failed");
+        try {
+          const response = await fetch('https://publisher.walrus-testnet.walrus.space/v1/blobs?epochs=5', {
+            method: 'PUT',
+            body: blob,
+          });
+          
+          if (!response.ok) throw new Error("Walrus node rejected upload");
+          
+          const data = await response.json();
+          const blobId = data.newlyCreated?.blobObject?.blobId || data.alreadyCertified?.blobId;
+          
+          if (!blobId) throw new Error("Missing Blob ID from Walrus");
+          
+          resolve(`https://aggregator.walrus-testnet.walrus.space/v1/blobs/${blobId}`);
+        } catch (error) {
+          console.error("Upload Error:", error);
+          reject(error);
+        }
+      }, 'image/png');
+    });
+  };
+
+  const handleSyncVisuals = async () => {
+    if (!selectedOpId || isProcessingTx || isMainRolling) return;
+    setIsProcessingTx(true);
+    displayTxMessage(`[ COMPILING VISUALS & SECURING TO WALRUS... PLEASE WAIT ]`);
+
+    try {
+      const snapshotUrl = await generateAndUploadSnapshot(activeLayers);
+      
+      displayTxMessage(`[ UPLOAD COMPLETE. SYNCING SUI METADATA... PLEASE SIGN ]`);
+      
+      const tx = new Transaction();
+      tx.moveCall({
+        target: `${ACTIVE_PACKAGE}::operative::sync_metadata`,
+        arguments: [
+          tx.object(selectedOpId),
+          tx.pure.string(dynamicDisplayName), // Passes e.g. "The Royal Don [MK II]" or "The Royal Don"
+          tx.pure.string(snapshotUrl), 
+        ],
+      });
+
+      signAndExecuteTransaction(
+        { transaction: tx },
+        {
+          onSuccess: async () => {
+            displayTxMessage(`[ SUCCESS: GLOBAL VISUALS & STATUS SYNCED ]`);
+            await refreshTerminalState();
+            setIsProcessingTx(false);
+          },
+          onError: (err: any) => {
+            displayTxMessage(`[ ERROR: SYNC FAILED ]`);
+            setIsProcessingTx(false);
+          },
+        }
+      );
+    } catch (error) {
+      displayTxMessage(`[ ERROR: COMPILATION ABORTED ]`);
+      setIsProcessingTx(false);
+    }
+  };
+
+  const handleEquip = async (traitId: string, category: string) => {
     if (!selectedOpId || isProcessingTx) return;
     const normalizedTarget = normalizeCategory(category);
     const existingGear = equippedGear[normalizedTarget];
 
     if (existingGear) {
-      displayTxMessage(`[ ERROR: SLOT IS OCCUPIED BY A ${existingGear.isNone ? 'GHOST TRAIT' : 'REAL ITEM'}. UNEQUIP IT FIRST. ]`);
+      displayTxMessage(`[ ERROR: SLOT IS OCCUPIED. UNEQUIP FIRST. ]`);
       return;
     }
 
     setIsProcessingTx(true);
-    displayTxMessage(`[ PROCESSING EQUIP & SYNCING METADATA... ]`);
-    
-    const traitItem = looseTraits?.data.find(t => t.data?.objectId === traitId);
-    const traitFields = (traitItem?.data?.content as any)?.fields;
-    const traitName = traitFields?.name || '';
-
-    let updatedLoreName = loreName;
-    if (traitName && !loreName.includes(traitName) && traitName.toLowerCase() !== 'none' && traitName.toLowerCase() !== 'null') {
-      updatedLoreName = `${loreName} // ${traitName.toUpperCase()}`;
-    }
+    displayTxMessage(`[ ATTACHING TRAIT... PLEASE SIGN ]`);
 
     const tx = new Transaction();
-
     tx.moveCall({
       target: `${ACTIVE_PACKAGE}::operative::equip_trait`,
       arguments: [tx.object(selectedOpId), tx.object(traitId)],
-    });
-
-    tx.moveCall({
-      target: `${ACTIVE_PACKAGE}::operative::sync_metadata`,
-      arguments: [
-        tx.object(selectedOpId),
-        tx.pure.string(updatedLoreName),
-        tx.pure.string(baseBodyUrl),
-      ],
     });
 
     signAndExecuteTransaction(
       { transaction: tx },
       {
         onSuccess: async () => {
-          displayTxMessage(`[ SUCCESS: GEAR EQUIPPED & ON-CHAIN STATE SYNCED ]`);
+          displayTxMessage(`[ SUCCESS: GEAR ATTACHED. REMEMBER TO SYNC VISUALS. ]`);
           await refreshTerminalState();
           setIsProcessingTx(false);
         },
         onError: (err: any) => {
-          console.error(err);
-          displayTxMessage(`[ ERROR: ${err.message?.split('\n')[0] || 'TRANSACTION FAILED'} ]`);
+          displayTxMessage(`[ ERROR: TRANSACTION FAILED ]`);
           setIsProcessingTx(false);
         },
       }
     );
   };
 
-  const handleUnequip = (category: string) => {
+  const handleUnequip = async (category: string) => {
     if (!selectedOpId || !account || isProcessingTx) return;
 
     setIsProcessingTx(true);
-    displayTxMessage(`[ PROCESSING UNEQUIP & SYNCING METADATA... ]`);
+    displayTxMessage(`[ DETACHING TRAIT... PLEASE SIGN ]`);
 
     const unequippedItem = equippedGear[category];
-    const unequippedName = unequippedItem?.name || '';
-    
-    let updatedLoreName = loreName;
-    if (unequippedName && !unequippedItem?.isNone) {
-      updatedLoreName = updatedLoreName.replace(` // ${unequippedName.toUpperCase()}`, '').trim();
-    }
-
     const onChainCategory = unequippedItem?.originalCategory || category.charAt(0).toUpperCase() + category.slice(1);
-
+    
     const tx = new Transaction();
     tx.moveCall({
       target: `${ACTIVE_PACKAGE}::operative::unequip_trait`,
       arguments: [tx.object(selectedOpId), tx.pure.string(onChainCategory)],
     });
 
-    tx.moveCall({
-      target: `${ACTIVE_PACKAGE}::operative::sync_metadata`,
-      arguments: [
-        tx.object(selectedOpId),
-        tx.pure.string(updatedLoreName),
-        tx.pure.string(baseBodyUrl),
-      ],
-    });
-
     signAndExecuteTransaction(
       { transaction: tx },
       {
         onSuccess: async () => {
-          displayTxMessage(`[ SUCCESS: GEAR UNEQUIPPED & ON-CHAIN STATE SYNCED ]`);
+          displayTxMessage(`[ SUCCESS: GEAR DETACHED. REMEMBER TO SYNC VISUALS. ]`);
           await refreshTerminalState();
           setIsProcessingTx(false);
         },
         onError: (err: any) => {
-          console.error(err);
-          displayTxMessage(`[ ERROR: ${err.message?.split('\n')[0] || 'TRANSACTION FAILED'} ]`);
+          displayTxMessage(`[ ERROR: TRANSACTION FAILED ]`);
           setIsProcessingTx(false);
         },
       }
@@ -501,7 +635,7 @@ function TerminalUI() {
     }
 
     setIsProcessingTx(true);
-    displayTxMessage(`[ INITIATING ${itemType} TRANSFER... PLEASE SIGN IN WALLET ]`);
+    displayTxMessage(`[ INITIATING ${itemType} TRANSFER... PLEASE SIGN ]`);
 
     try {
       const tx = new Transaction();
@@ -519,7 +653,7 @@ function TerminalUI() {
             setIsProcessingTx(false);
           },
           onError: (err: any) => {
-            displayTxMessage(`[ ERROR: ${err.message?.split('\n')[0] || 'TRANSFER FAILED'} ]`);
+            displayTxMessage(`[ ERROR: TRANSFER FAILED ]`);
             setIsProcessingTx(false);
           }
         }
@@ -568,7 +702,7 @@ function TerminalUI() {
     const actualCount = (currentPhase === 1 || currentPhase === 2) ? Math.min(mintQuantity, activeTickets.length) : mintQuantity;
 
     setIsProcessingTx(true);
-    displayTxMessage(`[ PREPARING BATCH MINT (${actualCount})... PLEASE SIGN IN WALLET ]`);
+    displayTxMessage(`[ PREPARING BATCH MINT (${actualCount})... PLEASE SIGN ]`);
 
     try {
       const tx = new Transaction();
@@ -590,7 +724,6 @@ function TerminalUI() {
           const rawKey = k === 'Jewelry' ? 'Jeweleries' : k;
           const urlVal = (tokenData.walrus_urls as any)[rawKey];
 
-          // FUTURE MINT FIX: Completely drops nulls and Nones so they are never minted again
           if (urlVal !== null && urlVal !== "None" && urlVal !== "null" && nameVal !== "None") {
             traitCategories.push(k);
             traitNames.push(nameVal);
@@ -613,13 +746,13 @@ function TerminalUI() {
         { transaction: tx },
         {
           onSuccess: async () => {
-            displayTxMessage(`[ SUCCESS: ${actualCount} CONSTRUCT(S) DEPLOYED ON-CHAIN ]`);
+            displayTxMessage(`[ SUCCESS: CONSTRUCT(S) DEPLOYED ]`);
             await refreshTerminalState();
             setMintQuantity(1); 
             setIsProcessingTx(false);
           },
           onError: (err: any) => {
-            displayTxMessage(`[ ERROR: ${err.message?.split('\n')[0] || 'TRANSACTION REJECTED'} ]`);
+            displayTxMessage(`[ ERROR: TRANSACTION REJECTED ]`);
             setIsProcessingTx(false);
           },
         }
@@ -648,7 +781,6 @@ function TerminalUI() {
 
       for (const url of activeLayers) {
         if (!url) continue;
-
         await new Promise<void>((resolve) => {
           const img = new Image();
           img.crossOrigin = 'anonymous';
@@ -669,17 +801,15 @@ function TerminalUI() {
           displayTxMessage(`[ ERROR: IMAGE ENCODING FAILED ]`);
           setIsExporting(false); return;
         }
-
         const blobUrl = URL.createObjectURL(blob);
         const link = document.createElement('a');
-        const safeLoreName = loreName ? loreName.replace(/[^a-zA-Z0-9]/g, '_').replace(/_+/g, '_').toUpperCase() : `NUMB_POLYS_${selectedOpId.slice(0,6)}`;
+        const safeLoreName = dynamicDisplayName ? dynamicDisplayName.replace(/[^a-zA-Z0-9]/g, '_').replace(/_+/g, '_').toUpperCase() : `NUMB_POLYS_${selectedOpId.slice(0,6)}`;
         link.download = `${safeLoreName}.png`;
         link.href = blobUrl;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
         setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
-        
         displayTxMessage(`[ SUCCESS: PFP EXPORTED ]`);
         setIsExporting(false);
       }, 'image/png');
@@ -861,7 +991,7 @@ function TerminalUI() {
                 
                 <div style={{ background: 'rgba(6, 182, 212, 0.05)', border: '1px solid rgba(6, 182, 212, 0.2)', padding: '12px 24px', borderRadius: '2px', marginBottom: '2rem', width: '100%', maxWidth: '800px', textAlign: 'center' }}>
                   <h2 style={{ margin: 0, color: '#06B6D4', textTransform: 'uppercase', letterSpacing: '0.15em', fontSize: '1.1rem' }}>
-                    {loreName}
+                    {dynamicDisplayName}
                   </h2>
                 </div>
 
@@ -905,7 +1035,15 @@ function TerminalUI() {
                       {isExporting ? '[ RENDERING IMAGE... ]' : '[ EXPORT HIGH-RES PFP ]'}
                     </button>
 
-                    <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.1)', padding: '1rem', backdropFilter: 'blur(12px)', borderRadius: '2px', width: '100%', boxSizing: 'border-box' }}>
+                    <button 
+                      onClick={handleSyncVisuals}
+                      disabled={isMainRolling || isProcessingTx}
+                      style={{ background: 'rgba(0, 255, 128, 0.1)', color: '#00ff80', border: '1px solid rgba(0, 255, 128, 0.3)', padding: '12px', fontFamily: 'inherit', fontSize: '0.85rem', fontWeight: 'bold', cursor: (isMainRolling || isProcessingTx) ? 'not-allowed' : 'pointer', textTransform: 'uppercase', letterSpacing: '0.1em', borderRadius: '2px', transition: 'all 0.3s ease', width: '100%', boxShadow: '0 0 10px rgba(0, 255, 128, 0.15)' }}
+                    >
+                      {isProcessingTx ? '[ PROCESSING... ]' : '[ SYNC COMPILED IMAGE TO ON-CHAIN ]'}
+                    </button>
+
+                    <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.1)', padding: '1rem', backdropFilter: 'blur(12px)', borderRadius: '2px', width: '100%', boxSizing: 'border-box', marginTop: '1rem' }}>
                       <h3 style={{ margin: '0 0 0.5rem 0', color: '#06B6D4', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.1em', fontSize: '0.85rem' }}>// SECURE TRANSFER UPLINK</h3>
                       <input 
                         type="text" 
@@ -985,7 +1123,6 @@ function TerminalUI() {
                               nameStr.includes('none') || 
                               nameStr.includes('null');
 
-                            // INVENTORY FILTER: Do not show useless Ghost traits in the armory
                             if (isNone) return null;
 
                             const isSlotOccupied = cat ? !!equippedGear[cat] && !equippedGear[cat].isNone : false;
