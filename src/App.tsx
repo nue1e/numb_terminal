@@ -65,23 +65,29 @@ const toRoman = (num: number): string => {
 const ConstructThumbnail = React.memo(({ op, index, isSelected, onClick, suiClient, isProcessingTx, refreshCounter, retryRpc }: any) => {
   const id = op.data?.objectId || op.address;
   const fields = (op.data?.content as any)?.fields;
-  const baseImg = fields?.image_url || fields?.url || '';
+  
+  // PRISTINE BODY FIX: Extract the Naked Base Body from Registry instead of the baked on-chain image
+  const rawLoreName = fields?.name || fields?.lore_name || '';
+  const cleanBaseName = rawLoreName.replace(/\s*\[MK\s+[IVXLCDM]+\]/gi, '').split(' // ')[0].trim();
+  const mintId = fields?.mint_id !== undefined ? Number(fields.mint_id) : null;
+  
+  const stockToken = (registryData as any[]).find((item: any, idx: number) => {
+    if (mintId !== null && idx === mintId) return true;
+    return item.lore_name?.toLowerCase().trim() === cleanBaseName.toLowerCase().trim();
+  });
+  
+  const baseImg = stockToken && stockToken.walrus_urls 
+    ? (stockToken.walrus_urls as any)['Base Body'] 
+    : (fields?.image_url || fields?.url || '');
   
   const [gearMap, setGearMap] = useState<Record<string, string>>({});
   const [isDataLoading, setIsDataLoading] = useState(true);
   const [areImagesReady, setAreImagesReady] = useState(false);
-  const [failsafe, setFailsafe] = useState(false);
-
-  useEffect(() => {
-    const timer = setTimeout(() => setFailsafe(true), 6000);
-    return () => clearTimeout(timer);
-  }, [id, refreshCounter]);
 
   useEffect(() => {
     let active = true;
     const fetchGear = async () => {
       setIsDataLoading(true);
-      setFailsafe(false);
 
       const cacheKey = `numbpolys_gear_thumb_${id}`;
       const cachedData = sessionStorage.getItem(cacheKey);
@@ -175,7 +181,7 @@ const ConstructThumbnail = React.memo(({ op, index, isSelected, onClick, suiClie
     return () => { active = false; };
   }, [isDataLoading, activeUrls.join(',')]);
 
-  const isRolling = !failsafe && (isDataLoading || !areImagesReady);
+  const isRolling = isDataLoading || !areImagesReady;
 
   return (
     <div 
@@ -222,7 +228,6 @@ function TerminalUI() {
   const [isLoadingSlots, setIsLoadingSlots] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [areMainImagesReady, setAreMainImagesReady] = useState(false);
-  const [mainFailsafe, setMainFailsafe] = useState(false);
   const [refreshCounter, setRefreshCounter] = useState(0);
 
   const [currentPage, setCurrentPage] = useState(0);
@@ -231,6 +236,10 @@ function TerminalUI() {
   const [isProcessingTx, setIsProcessingTx] = useState(false);
   const [txMessage, setTxMessage] = useState<string | null>(null);
   const [transferAddress, setTransferAddress] = useState<string>('');
+
+  // OVERSEER METADATA STATE
+  const [globalProjectName, setGlobalProjectName] = useState('Numb Polys');
+  const [globalProjectImage, setGlobalProjectImage] = useState('');
 
   const displayTxMessage = (msg: string) => {
     setTxMessage(msg);
@@ -278,7 +287,6 @@ function TerminalUI() {
   const loadEquippedTraits = async (opId: string) => {
     activeLoadRef.current = opId;
     setIsLoadingSlots(true);
-    setMainFailsafe(false);
 
     const cacheKey = `numbpolys_gear_full_${opId}`;
     sessionStorage.removeItem(cacheKey);
@@ -338,8 +346,6 @@ function TerminalUI() {
   useEffect(() => {
     if (selectedOpId) {
       loadEquippedTraits(selectedOpId);
-      const timer = setTimeout(() => setMainFailsafe(true), 6000);
-      return () => clearTimeout(timer);
     }
   }, [selectedOpId, refreshCounter]);
 
@@ -467,7 +473,7 @@ function TerminalUI() {
     return () => { active = false; };
   }, [isLoadingSlots, activeLayers.join(',')]);
 
-  const isMainRolling = !mainFailsafe && (isLoadingSlots || !areMainImagesReady);
+  const isMainRolling = isLoadingSlots || !areMainImagesReady;
 
   // -------------------------------------------------------------
   // DYNAMIC SNAPSHOT GENERATOR
@@ -501,7 +507,7 @@ function TerminalUI() {
       canvas.toBlob(async (blob) => {
         if (!blob) return reject("Blob encoding failed");
         try {
-          const response = await fetch('https://publisher.walrus-testnet.walrus.space/v1/blobs?epochs=5', {
+          const response = await fetch('https://publisher.walrus-testnet.walrus.space/v1/blobs?epochs=53', {
             method: 'PUT',
             body: blob,
           });
@@ -513,7 +519,7 @@ function TerminalUI() {
           
           if (!blobId) throw new Error("Missing Blob ID from Walrus");
           
-          resolve(`https://aggregator.walrus-testnet.walrus.space/v1/blobs/${blobId}`);
+          resolve(`https://wsrv.nl/?url=https://aggregator.walrus-testnet.walrus.space/v1/blobs/${blobId}&output=png`);
         } catch (error) {
           console.error("Upload Error:", error);
           reject(error);
@@ -558,6 +564,67 @@ function TerminalUI() {
       );
     } catch (error) {
       displayTxMessage(`[ ERROR: COMPILATION ABORTED ]`);
+      setIsProcessingTx(false);
+    }
+  };
+
+  // -------------------------------------------------------------
+  // GLOBAL METADATA UPDATER ENGINE
+  // -------------------------------------------------------------
+  const handleUpdateCollectionMetadata = async (mode: 'add' | 'edit') => {
+    if (isProcessingTx || !globalProjectName || !globalProjectImage || !account) return;
+    setIsProcessingTx(true);
+    displayTxMessage(`[ LOCATING DISPLAY OBJECT ON-CHAIN... ]`);
+
+    try {
+      const objects = await suiClient.getOwnedObjects({
+        owner: account.address,
+        filter: { StructType: `0x2::display::Display<${ORIGINAL_PACKAGE_ID}::operative::Operative>` }
+      });
+      
+      if (objects.data.length === 0) { 
+        displayTxMessage(`[ ERROR: DISPLAY OBJECT NOT FOUND IN ADMIN WALLET ]`); 
+        setIsProcessingTx(false);
+        return; 
+      }
+      
+      const displayId = objects.data[0].data?.objectId;
+      if (!displayId) throw new Error("Invalid Display Object ID");
+      
+      displayTxMessage(`[ INJECTING COLLECTION IDENTITY... PLEASE SIGN ]`);
+
+      const tx = new Transaction();
+      
+      tx.moveCall({
+        target: `0x2::display::${mode}`,
+        typeArguments: [`${ORIGINAL_PACKAGE_ID}::operative::Operative`],
+        arguments: [tx.object(displayId), tx.pure.string('project_name'), tx.pure.string(globalProjectName)]
+      });
+      
+      tx.moveCall({
+        target: `0x2::display::${mode}`,
+        typeArguments: [`${ORIGINAL_PACKAGE_ID}::operative::Operative`],
+        arguments: [tx.object(displayId), tx.pure.string('project_image_url'), tx.pure.string(globalProjectImage)]
+      });
+      
+      tx.moveCall({
+        target: '0x2::display::update_version',
+        typeArguments: [`${ORIGINAL_PACKAGE_ID}::operative::Operative`],
+        arguments: [tx.object(displayId)]
+      });
+      
+      signAndExecuteTransaction({ transaction: tx }, {
+        onSuccess: () => {
+          displayTxMessage(`[ SUCCESS: GLOBAL IDENTITY SYNCED TO BLOCKCHAIN ]`);
+          setIsProcessingTx(false);
+        },
+        onError: (err: any) => {
+          displayTxMessage(`[ ERROR: TRANSACTION FAILED. IF 'ADD' FAILED, TRY 'EDIT'. ]`);
+          setIsProcessingTx(false);
+        }
+      });
+    } catch(e: any) { 
+      displayTxMessage(`[ ERROR: ${e.message} ]`); 
       setIsProcessingTx(false);
     }
   };
@@ -1164,7 +1231,51 @@ function TerminalUI() {
             )}
           </div>
         ) : (
-          <AdminDashboard />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', width: '100%', alignItems: 'center' }}>
+            {account?.address === '0xdb67bfb984df37d73755da48c166689e7d584b17cf6c23a680cb05d90f9653fb' && (
+              <div style={{ width: '100%', maxWidth: '800px', background: 'rgba(255,255,255,0.02)', padding: '1.5rem', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '2px' }}>
+                <h3 style={{ margin: '0 0 1rem 0', color: '#06B6D4', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.1em', fontSize: '0.85rem' }}>// GLOBAL CONTRACT IDENTITY (ON-CHAIN DISPLAY)</h3>
+                <p style={{ fontSize: '0.75rem', color: '#A3A3A3', marginBottom: '1rem', lineHeight: '1.5' }}>
+                  This controls the root <strong style={{ color: '#E5E5E5' }}>Display</strong> object for your entire collection on Tradeport and SuiScan. 
+                  <br/>Note: Upload your desired Collection Image to Walrus, IPFS, or Arweave and paste the direct URL below.
+                </p>
+                
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <input 
+                    type="text" 
+                    placeholder="Project Name (e.g., Numb Polys)" 
+                    value={globalProjectName}
+                    onChange={(e) => setGlobalProjectName(e.target.value)}
+                    style={{ width: '100%', background: 'rgba(0,0,0,0.3)', border: '1px solid #444', color: '#E5E5E5', padding: '10px', boxSizing: 'border-box', fontFamily: 'inherit', fontSize: '12px', borderRadius: '2px' }}
+                  />
+                  <input 
+                    type="text" 
+                    placeholder="Collection Avatar URL (https://...)" 
+                    value={globalProjectImage}
+                    onChange={(e) => setGlobalProjectImage(e.target.value)}
+                    style={{ width: '100%', background: 'rgba(0,0,0,0.3)', border: '1px solid #444', color: '#E5E5E5', padding: '10px', boxSizing: 'border-box', fontFamily: 'inherit', fontSize: '12px', borderRadius: '2px' }}
+                  />
+                  <div style={{ display: 'flex', gap: '1rem' }}>
+                    <button 
+                      onClick={() => handleUpdateCollectionMetadata('add')}
+                      disabled={isProcessingTx || !globalProjectName || !globalProjectImage}
+                      style={{ flex: 1, background: 'rgba(0, 255, 128, 0.1)', color: '#00ff80', border: '1px solid rgba(0, 255, 128, 0.3)', padding: '10px', cursor: (isProcessingTx || !globalProjectName || !globalProjectImage) ? 'not-allowed' : 'pointer', fontFamily: 'inherit', fontWeight: 'bold', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', borderRadius: '2px', transition: 'all 0.3s ease' }}
+                    >
+                      {isProcessingTx ? '[ PROCESSING... ]' : '[ 1. SET METADATA (ADD) ]'}
+                    </button>
+                    <button 
+                      onClick={() => handleUpdateCollectionMetadata('edit')}
+                      disabled={isProcessingTx || !globalProjectName || !globalProjectImage}
+                      style={{ flex: 1, background: 'rgba(255, 165, 0, 0.1)', color: 'orange', border: '1px solid rgba(255, 165, 0, 0.3)', padding: '10px', cursor: (isProcessingTx || !globalProjectName || !globalProjectImage) ? 'not-allowed' : 'pointer', fontFamily: 'inherit', fontWeight: 'bold', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', borderRadius: '2px', transition: 'all 0.3s ease' }}
+                    >
+                      {isProcessingTx ? '[ PROCESSING... ]' : '[ 2. OVERWRITE METADATA (EDIT) ]'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+            <AdminDashboard />
+          </div>
         )}
       </div>
     </div>
