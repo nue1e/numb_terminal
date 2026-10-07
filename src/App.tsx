@@ -31,6 +31,7 @@ const queryClient = new QueryClient({
   },
 });
 
+// REVERTED BACK TO BLOCKVISION - Mysten public node was rate-limiting the wallet fetch
 const networks = {
   mainnet: { url: 'https://sui-mainnet-endpoint.blockvision.org' }
 } as any;
@@ -66,28 +67,32 @@ const ConstructThumbnail = React.memo(({ op, index, isSelected, onClick, suiClie
   const id = op.data?.objectId || op.address;
   const fields = (op.data?.content as any)?.fields;
   
-  // PRISTINE BODY FIX: Extract the Naked Base Body from Registry instead of the baked on-chain image
+  // STRICT ARCHITECTURE: Searches JSON exclusively by exact name match. Ignores mint_id index mapping.
   const rawLoreName = fields?.name || fields?.lore_name || '';
   const cleanBaseName = rawLoreName.replace(/\s*\[MK\s+[IVXLCDM]+\]/gi, '').split(' // ')[0].trim();
-  const mintId = fields?.mint_id !== undefined ? Number(fields.mint_id) : null;
   
-  const stockToken = (registryData as any[]).find((item: any, idx: number) => {
-    if (mintId !== null && idx === mintId) return true;
-    return item.lore_name?.toLowerCase().trim() === cleanBaseName.toLowerCase().trim();
+  const stockToken = (registryData as any[]).find((item: any) => {
+    return (item.lore_name || '').toLowerCase().trim() === cleanBaseName.toLowerCase().trim();
   });
   
-  const baseImg = stockToken && stockToken.walrus_urls 
-    ? (stockToken.walrus_urls as any)['Base Body'] 
-    : (fields?.image_url || fields?.url || '');
+  // STRICTLY JSON: Never falls back to flattened on-chain image.
+  const baseImg = stockToken?.walrus_urls?.['Base Body'] || '';
   
   const [gearMap, setGearMap] = useState<Record<string, string>>({});
   const [isDataLoading, setIsDataLoading] = useState(true);
   const [areImagesReady, setAreImagesReady] = useState(false);
+  const [failsafe, setFailsafe] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setFailsafe(true), 6000);
+    return () => clearTimeout(timer);
+  }, [id, refreshCounter]);
 
   useEffect(() => {
     let active = true;
     const fetchGear = async () => {
       setIsDataLoading(true);
+      setFailsafe(false);
 
       const cacheKey = `numbpolys_gear_thumb_${id}`;
       const cachedData = sessionStorage.getItem(cacheKey);
@@ -181,7 +186,7 @@ const ConstructThumbnail = React.memo(({ op, index, isSelected, onClick, suiClie
     return () => { active = false; };
   }, [isDataLoading, activeUrls.join(',')]);
 
-  const isRolling = isDataLoading || !areImagesReady;
+  const isRolling = !failsafe && (isDataLoading || !areImagesReady);
 
   return (
     <div 
@@ -228,6 +233,7 @@ function TerminalUI() {
   const [isLoadingSlots, setIsLoadingSlots] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [areMainImagesReady, setAreMainImagesReady] = useState(false);
+  const [mainFailsafe, setMainFailsafe] = useState(false);
   const [refreshCounter, setRefreshCounter] = useState(0);
 
   const [currentPage, setCurrentPage] = useState(0);
@@ -287,6 +293,7 @@ function TerminalUI() {
   const loadEquippedTraits = async (opId: string) => {
     activeLoadRef.current = opId;
     setIsLoadingSlots(true);
+    setMainFailsafe(false);
 
     const cacheKey = `numbpolys_gear_full_${opId}`;
     sessionStorage.removeItem(cacheKey);
@@ -346,6 +353,8 @@ function TerminalUI() {
   useEffect(() => {
     if (selectedOpId) {
       loadEquippedTraits(selectedOpId);
+      const timer = setTimeout(() => setMainFailsafe(true), 6000);
+      return () => clearTimeout(timer);
     }
   }, [selectedOpId, refreshCounter]);
 
@@ -369,7 +378,6 @@ function TerminalUI() {
   const displayOperatives = ownedOperatives?.data || [];
   const activeOpData = displayOperatives.find((op: any) => (op.data?.objectId || op.address) === selectedOpId);
   const activeOpFields = (activeOpData?.data?.content as any)?.fields;
-  const baseBodyUrl = activeOpFields?.image_url || activeOpFields?.url || '';
   
   // -------------------------------------------------------------
   // DYNAMIC LOADOUT NAMING LOGIC ([MK I], [MK II], [MK III]...)
@@ -382,15 +390,19 @@ function TerminalUI() {
     .split(' // ')[0]
     .trim();
 
-  const mintId = activeOpFields?.mint_id !== undefined ? Number(activeOpFields.mint_id) : null;
+  // STRICT ARCHITECTURE: Searches JSON exclusively by exact name match. Ignores mint_id index mapping.
+  const stockToken = useMemo(() => {
+    if (!cleanBaseName) return null;
+    return (registryData as any[]).find((item: any) => 
+      (item.lore_name || '').toLowerCase().trim() === cleanBaseName.toLowerCase()
+    );
+  }, [cleanBaseName]);
+
+  // STRICTLY JSON: Never falls back to flattened on-chain image.
+  const baseBodyUrl = stockToken?.walrus_urls?.['Base Body'] || '';
 
   // Compute how many traits differ from original mint
   const modificationCount = useMemo(() => {
-    const stockToken = (registryData as any[]).find((item: any, idx: number) => {
-      if (mintId !== null && idx === mintId) return true;
-      return item.lore_name?.toLowerCase().trim() === cleanBaseName.toLowerCase().trim();
-    });
-
     if (!stockToken || !stockToken.display_traits) return 0;
 
     const stockMap: Record<string, string> = {};
@@ -429,7 +441,7 @@ function TerminalUI() {
     }
 
     return diffCount;
-  }, [cleanBaseName, mintId, equippedGear]);
+  }, [stockToken, equippedGear]);
 
   // If customized: append [MK <ROMAN>], else retain default title
   const dynamicDisplayName = modificationCount > 0 
@@ -473,10 +485,10 @@ function TerminalUI() {
     return () => { active = false; };
   }, [isLoadingSlots, activeLayers.join(',')]);
 
-  const isMainRolling = isLoadingSlots || !areMainImagesReady;
+  const isMainRolling = !mainFailsafe && (isLoadingSlots || !areMainImagesReady);
 
   // -------------------------------------------------------------
-  // DYNAMIC SNAPSHOT GENERATOR
+  // DYNAMIC SNAPSHOT GENERATOR (For On-Chain & Tradeport Only)
   // -------------------------------------------------------------
   const generateAndUploadSnapshot = async (layersToRender: (string | null | undefined)[]): Promise<string> => {
     const validUrls = layersToRender.filter(url => url) as string[];
@@ -543,7 +555,7 @@ function TerminalUI() {
         target: `${ACTIVE_PACKAGE}::operative::sync_metadata`,
         arguments: [
           tx.object(selectedOpId),
-          tx.pure.string(dynamicDisplayName), // Passes e.g. "The Royal Don [MK II]" or "The Royal Don"
+          tx.pure.string(dynamicDisplayName), 
           tx.pure.string(snapshotUrl), 
         ],
       });
@@ -568,9 +580,7 @@ function TerminalUI() {
     }
   };
 
-  // -------------------------------------------------------------
-  // GLOBAL METADATA UPDATER ENGINE
-  // -------------------------------------------------------------
+  // OVERSEER GLOBALS INJECTOR
   const handleUpdateCollectionMetadata = async (mode: 'add' | 'edit') => {
     if (isProcessingTx || !globalProjectName || !globalProjectImage || !account) return;
     setIsProcessingTx(true);
@@ -594,7 +604,6 @@ function TerminalUI() {
       displayTxMessage(`[ INJECTING COLLECTION IDENTITY... PLEASE SIGN ]`);
 
       const tx = new Transaction();
-      
       tx.moveCall({
         target: `0x2::display::${mode}`,
         typeArguments: [`${ORIGINAL_PACKAGE_ID}::operative::Operative`],
