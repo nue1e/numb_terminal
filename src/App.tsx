@@ -31,7 +31,6 @@ const queryClient = new QueryClient({
   },
 });
 
-// REVERTED BACK TO BLOCKVISION - Mysten public node was rate-limiting the wallet fetch
 const networks = {
   mainnet: { url: 'https://sui-mainnet-endpoint.blockvision.org' }
 } as any;
@@ -63,7 +62,7 @@ const toRoman = (num: number): string => {
 };
 
 // --- MEMOIZED ROLLING THUMBNAIL ---
-const ConstructThumbnail = React.memo(({ op, index, isSelected, onClick, suiClient, isProcessingTx, refreshCounter, retryRpc }: any) => {
+const ConstructThumbnail = React.memo(({ op, index, isSelected, activeGear, onClick, suiClient, isProcessingTx, refreshCounter, retryRpc }: any) => {
   const id = op.data?.objectId || op.address;
   const fields = (op.data?.content as any)?.fields;
   
@@ -78,10 +77,25 @@ const ConstructThumbnail = React.memo(({ op, index, isSelected, onClick, suiClie
   // STRICTLY JSON: Never falls back to flattened on-chain image.
   const baseImg = stockToken?.walrus_urls?.['Base Body'] || '';
   
-  const [gearMap, setGearMap] = useState<Record<string, string>>({});
+  const [fetchedGearMap, setFetchedGearMap] = useState<Record<string, string>>({});
   const [isDataLoading, setIsDataLoading] = useState(true);
   const [areImagesReady, setAreImagesReady] = useState(false);
   const [failsafe, setFailsafe] = useState(false);
+
+  // If this thumbnail is currently selected, perfectly mirror the Main Canvas data.
+  // Otherwise, use its own background-fetched data.
+  const gearMap = useMemo(() => {
+    if (isSelected && activeGear) {
+      const formatted: Record<string, string> = {};
+      Object.keys(activeGear).forEach(key => {
+        if (!activeGear[key].isNone) {
+          formatted[key] = activeGear[key].imageUrl;
+        }
+      });
+      return formatted;
+    }
+    return fetchedGearMap;
+  }, [isSelected, activeGear, fetchedGearMap]);
 
   useEffect(() => {
     const timer = setTimeout(() => setFailsafe(true), 6000);
@@ -98,7 +112,7 @@ const ConstructThumbnail = React.memo(({ op, index, isSelected, onClick, suiClie
       const cachedData = sessionStorage.getItem(cacheKey);
       if (cachedData) {
         if (active) {
-          setGearMap(JSON.parse(cachedData));
+          setFetchedGearMap(JSON.parse(cachedData));
           setIsDataLoading(false);
         }
         return;
@@ -130,12 +144,12 @@ const ConstructThumbnail = React.memo(({ op, index, isSelected, onClick, suiClie
             }
           }
           if (active) {
-            setGearMap(newGearMap);
+            setFetchedGearMap(newGearMap);
             sessionStorage.setItem(cacheKey, JSON.stringify(newGearMap));
           }
         } else {
           if (active) {
-            setGearMap({});
+            setFetchedGearMap({});
             sessionStorage.setItem(cacheKey, JSON.stringify({}));
           }
         }
@@ -161,7 +175,8 @@ const ConstructThumbnail = React.memo(({ op, index, isSelected, onClick, suiClie
   ].filter(url => url && url.toLowerCase() !== 'none' && url.toLowerCase() !== 'null');
 
   useEffect(() => {
-    if (isDataLoading) return;
+    if (isSelected && activeGear) setIsDataLoading(false); // Instantly stop loading if mirroring main canvas
+    if (isDataLoading && !isSelected) return;
     let active = true;
     if (activeUrls.length === 0) {
       setAreImagesReady(true);
@@ -184,9 +199,9 @@ const ConstructThumbnail = React.memo(({ op, index, isSelected, onClick, suiClie
     });
 
     return () => { active = false; };
-  }, [isDataLoading, activeUrls.join(',')]);
+  }, [isDataLoading, isSelected, activeGear, activeUrls.join(',')]);
 
-  const isRolling = !failsafe && (isDataLoading || !areImagesReady);
+  const isRolling = !failsafe && ((isDataLoading && !isSelected) || !areImagesReady);
 
   return (
     <div 
@@ -214,6 +229,7 @@ const ConstructThumbnail = React.memo(({ op, index, isSelected, onClick, suiClie
     prevProps.isSelected === nextProps.isSelected &&
     prevProps.isProcessingTx === nextProps.isProcessingTx &&
     prevProps.refreshCounter === nextProps.refreshCounter &&
+    prevProps.activeGear === nextProps.activeGear &&
     (prevProps.op.data?.objectId || prevProps.op.address) === (nextProps.op.data?.objectId || nextProps.op.address)
   );
 });
@@ -1046,19 +1062,23 @@ function TerminalUI() {
                 )}
               </div>
               <div style={{ display: 'flex', overflowX: 'auto', gap: '10px', paddingBottom: '10px' }}>
-                {paginatedOperatives.map((op: any, index: number) => (
-                  <ConstructThumbnail 
-                    key={op.data?.objectId || op.address} 
-                    op={op} 
-                    index={index}
-                    isSelected={selectedOpId === (op.data?.objectId || op.address)} 
-                    onClick={setSelectedOpId} 
-                    suiClient={suiClient}
-                    isProcessingTx={isProcessingTx}
-                    refreshCounter={refreshCounter}
-                    retryRpc={retryRpc}
-                  />
-                ))}
+                {paginatedOperatives.map((op: any, index: number) => {
+                  const isOpSelected = selectedOpId === (op.data?.objectId || op.address);
+                  return (
+                    <ConstructThumbnail 
+                      key={op.data?.objectId || op.address} 
+                      op={op} 
+                      index={index}
+                      isSelected={isOpSelected} 
+                      activeGear={isOpSelected ? equippedGear : null}
+                      onClick={setSelectedOpId} 
+                      suiClient={suiClient}
+                      isProcessingTx={isProcessingTx}
+                      refreshCounter={refreshCounter}
+                      retryRpc={retryRpc}
+                    />
+                  );
+                })}
               </div>
             </div>
 
