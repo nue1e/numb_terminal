@@ -271,10 +271,10 @@ function TerminalUI() {
   const publicIndex = regFields?.public_minted ? parseInt(regFields.public_minted) : 111;
   const v3Fields = (v3StateObj?.data?.content as any)?.fields;
   
-  // HARDCODED MINT PRICES (MIST)
-  const mintPriceMist = regFields?.mint_price || "12000000000"; // 12 SUI
-  const gtdPriceMist = v3Fields?.gtd_price || "1000000000";     // 1 SUI
-  const fcfsPriceMist = v3Fields?.fcfs_price || "8000000000";   // 8 SUI
+  // MINT PRICES (IN MIST & SUI EQUIVALENT)
+  const mintPriceMist = regFields?.mint_price || "12000000000"; // 12 SUI (Public)
+  const gtdPriceMist = v3Fields?.gtd_price || "1000000000";     // 1 SUI (GTD)
+  const fcfsPriceMist = v3Fields?.fcfs_price || "8000000000";   // 8 SUI (FCFS)
 
   const mintPriceSui = Number(mintPriceMist) / 1000000000;
   const gtdPriceSui = Number(gtdPriceMist) / 1000000000;
@@ -945,6 +945,23 @@ function TerminalUI() {
         .neon-wallet-override button:hover { background-color: #E5E5E5 !important; color: #0D0D11 !important; border-color: #E5E5E5 !important; }
         .crt-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.02), rgba(6, 182, 212, 0.01), rgba(0, 0, 255, 0.02)); background-size: 100% 3px, 3px 100%; z-index: 9999; pointer-events: none; opacity: 0.2; }
         @keyframes spin { to { transform: rotate(360deg); } }
+        
+        /* RESPONSIVE SCROLLBARS */
+        .terminal-scroller {
+          display: flex;
+          gap: 1rem;
+          overflow-x: auto;
+          width: 100%;
+          box-sizing: border-box;
+          padding: 0.5rem 0.5rem 1.25rem 0.5rem;
+          justify-content: flex-start;
+          -webkit-overflow-scrolling: touch;
+          scrollbar-width: thin;
+          scrollbar-color: #06B6D4 rgba(255, 255, 255, 0.05);
+        }
+        .terminal-scroller::-webkit-scrollbar { height: 4px; }
+        .terminal-scroller::-webkit-scrollbar-track { background: rgba(255, 255, 255, 0.02); }
+        .terminal-scroller::-webkit-scrollbar-thumb { background: #06B6D4; border-radius: 2px; }
       `}</style>
 
       <div className="crt-overlay" />
@@ -984,21 +1001,40 @@ function TerminalUI() {
         )}
 
         {activeView === 'GENERATOR' ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4rem', width: '100%', alignItems: 'center', paddingBottom: '4rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '3.5rem', width: '100%', alignItems: 'center', paddingBottom: '4rem' }}>
             
-            {/* --- 1. CORE MINT TERMINAL --- */}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3rem', justifyContent: 'center', width: '100%', maxWidth: '1000px' }}>
+            {/* --- 1. CORE MINT TERMINAL & DEPLOYMENT UPLINK --- */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2.5rem', justifyContent: 'center', width: '100%', maxWidth: '1050px' }}>
               <div className="hud-frame" style={{ width: '100%', maxWidth: '400px', display: 'flex', justifyContent: 'center', borderRadius: '2px', background: 'rgba(0,0,0,0.5)' }}>
                 <div className="hud-corner-bottom" />
                 <LayerStacker/>
               </div>
 
-              <div style={{ width: '100%', maxWidth: '450px', display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', gap: '2rem' }}>
+              <div style={{ width: '100%', maxWidth: '520px', display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', gap: '1.75rem' }}>
                 <div>
-                  <h2 style={{ margin: '0 0 0.5rem 0', color: '#06B6D4', textTransform: 'uppercase', letterSpacing: '0.15em' }}>INITIALIZE CONSTRUCT</h2>
+                  <h2 style={{ margin: '0 0 0.5rem 0', color: '#06B6D4', textTransform: 'uppercase', letterSpacing: '0.15em', fontSize: '1.25rem' }}>DEPLOY CONSTRUCT // TERMINAL</h2>
                   <p style={{ color: '#A3A3A3', fontSize: '0.85rem', lineHeight: '1.6', margin: 0 }}>
-                    Access the mainframe to deploy an Operative. Each construct is secured as a permanent asset on the Walrus Mainnet. Blind mint is currently active.
+                    Execute construct assembly on the Sui Mainnet. Storage is permanently mapped via Walrus blobs. Blind deployment ensures absolute cryptographic fairness until inventory decryptions.
                   </p>
+                </div>
+
+                {/* ACCESS TIERS MATRIX */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem' }}>
+                  <div style={{ background: currentPhase === 1 ? 'rgba(0,255,0,0.08)' : 'rgba(255,255,255,0.02)', border: currentPhase === 1 ? '1px solid #00ff00' : '1px solid rgba(255,255,255,0.08)', padding: '10px 8px', borderRadius: '2px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '9px', color: currentPhase === 1 ? '#00ff00' : '#888', letterSpacing: '0.08em', textTransform: 'uppercase' }}>GTD UPLINK</div>
+                    <div style={{ fontSize: '14px', fontWeight: 'bold', color: currentPhase === 1 ? '#00ff00' : '#E5E5E5', margin: '4px 0' }}>1 SUI</div>
+                    <div style={{ fontSize: '8px', color: '#666' }}>EARLY ACCESS</div>
+                  </div>
+                  <div style={{ background: currentPhase === 2 ? 'rgba(255,165,0,0.08)' : 'rgba(255,255,255,0.02)', border: currentPhase === 2 ? '1px solid orange' : '1px solid rgba(255,255,255,0.08)', padding: '10px 8px', borderRadius: '2px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '9px', color: currentPhase === 2 ? 'orange' : '#888', letterSpacing: '0.08em', textTransform: 'uppercase' }}>FCFS TIER</div>
+                    <div style={{ fontSize: '14px', fontWeight: 'bold', color: currentPhase === 2 ? 'orange' : '#E5E5E5', margin: '4px 0' }}>8 SUI</div>
+                    <div style={{ fontSize: '8px', color: '#666' }}>DISCOUNT ACCESS</div>
+                  </div>
+                  <div style={{ background: currentPhase === 3 ? 'rgba(6,182,212,0.08)' : 'rgba(255,255,255,0.02)', border: currentPhase === 3 ? '1px solid #06B6D4' : '1px solid rgba(255,255,255,0.08)', padding: '10px 8px', borderRadius: '2px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '9px', color: currentPhase === 3 ? '#06B6D4' : '#888', letterSpacing: '0.08em', textTransform: 'uppercase' }}>PUBLIC MINT</div>
+                    <div style={{ fontSize: '14px', fontWeight: 'bold', color: currentPhase === 3 ? '#06B6D4' : '#E5E5E5', margin: '4px 0' }}>12 SUI</div>
+                    <div style={{ fontSize: '8px', color: '#666' }}>OPEN ACCESS</div>
+                  </div>
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -1015,7 +1051,7 @@ function TerminalUI() {
                               key={num}
                               disabled={!isSelectable || isProcessingTx}
                               onClick={() => setMintQuantity(num)}
-                              style={{ flex: 1, padding: '12px', background: mintQuantity === num ? '#E5E5E5' : 'rgba(255,255,255,0.03)', color: mintQuantity === num ? '#0D0D11' : (isSelectable ? '#E5E5E5' : '#555'), border: mintQuantity === num ? '1px solid #E5E5E5' : '1px solid rgba(255,255,255,0.1)', cursor: (!isSelectable || isProcessingTx) ? 'not-allowed' : 'pointer', fontFamily: 'inherit', fontWeight: 'bold', borderRadius: '2px', transition: 'all 0.2s ease' }}
+                              style={{ flex: 1, padding: '10px', background: mintQuantity === num ? '#E5E5E5' : 'rgba(255,255,255,0.03)', color: mintQuantity === num ? '#0D0D11' : (isSelectable ? '#E5E5E5' : '#555'), border: mintQuantity === num ? '1px solid #E5E5E5' : '1px solid rgba(255,255,255,0.1)', cursor: (!isSelectable || isProcessingTx) ? 'not-allowed' : 'pointer', fontFamily: 'inherit', fontWeight: 'bold', borderRadius: '2px', transition: 'all 0.2s ease' }}
                             >
                               {num}
                             </button>
@@ -1028,77 +1064,119 @@ function TerminalUI() {
                     {buttonText}
                   </button>
                 </div>
-              </div>
 
-              {/* --- NEW: PROTOCOL TREASURY ROUTING --- */}
-              <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.1)', padding: '1.5rem', borderRadius: '2px', width: '100%', marginTop: '1rem' }}>
-                <h3 style={{ margin: '0 0 1rem 0', color: '#06B6D4', textTransform: 'uppercase', letterSpacing: '0.1em', fontSize: '0.9rem' }}>// PROTOCOL TREASURY ROUTING</h3>
-                <p style={{ color: '#A3A3A3', fontSize: '0.8rem', marginBottom: '1.5rem', lineHeight: '1.6' }}>
-                  Numb Polys is not static art; it is an experimental Web3 ecosystem. Treasury funds are aggressively reinvested to unlock future state mechanics, ensuring this project explores new frontiers and delivers continuous community utility.
-                </p>
-                
-                {/* 12 SUI Breakdown Bar */}
-                <div style={{ display: 'flex', width: '100%', height: '24px', borderRadius: '2px', overflow: 'hidden', marginBottom: '1.5rem', border: '1px solid rgba(255,255,255,0.1)' }}>
-                  <div style={{ width: '41.6%', background: '#06B6D4', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0D0D11', fontSize: '0.7rem', fontWeight: 'bold' }}>5</div>
-                  <div style={{ width: '25%', background: '#00ff80', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0D0D11', fontSize: '0.7rem', fontWeight: 'bold' }}>3</div>
-                  <div style={{ width: '16.7%', background: '#ff3333', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0D0D11', fontSize: '0.7rem', fontWeight: 'bold' }}>2</div>
-                  <div style={{ width: '16.7%', background: '#E5E5E5', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0D0D11', fontSize: '0.7rem', fontWeight: 'bold' }}>2</div>
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.5rem' }}>
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                      <div style={{ width: '10px', height: '10px', background: '#06B6D4', borderRadius: '50%' }} />
-                      <span style={{ color: '#E5E5E5', fontSize: '0.75rem', fontWeight: 'bold' }}>5 SUI — ECOSYSTEM LIQUIDITY</span>
-                    </div>
-                    <div style={{ color: '#A3A3A3', fontSize: '0.75rem', paddingLeft: '18px', lineHeight: '1.4' }}>Locked to back our upcoming native meme token. This token unlocks exclusive rewards for holders.</div>
-                  </div>
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                      <div style={{ width: '10px', height: '10px', background: '#00ff80', borderRadius: '50%' }} />
-                      <span style={{ color: '#E5E5E5', fontSize: '0.75rem', fontWeight: 'bold' }}>3 SUI — COMMUNITY TVL</span>
-                    </div>
-                    <div style={{ color: '#A3A3A3', fontSize: '0.75rem', paddingLeft: '18px', lineHeight: '1.4' }}>Routed to upcoming staking mechanisms. Your Operative becomes a yield-bearing asset.</div>
-                  </div>
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                      <div style={{ width: '10px', height: '10px', background: '#ff3333', borderRadius: '50%' }} />
-                      <span style={{ color: '#E5E5E5', fontSize: '0.75rem', fontWeight: 'bold' }}>2 SUI — INFRASTRUCTURE & R&D</span>
-                    </div>
-                    <div style={{ color: '#A3A3A3', fontSize: '0.75rem', paddingLeft: '18px', lineHeight: '1.4' }}>Covers Walrus permanent storage, Terminal scaling, and funding the exploration of brand new mechanics.</div>
-                  </div>
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                      <div style={{ width: '10px', height: '10px', background: '#E5E5E5', borderRadius: '50%' }} />
-                      <span style={{ color: '#E5E5E5', fontSize: '0.75rem', fontWeight: 'bold' }}>2 SUI — CORE TEAM</span>
-                    </div>
-                    <div style={{ color: '#A3A3A3', fontSize: '0.75rem', paddingLeft: '18px', lineHeight: '1.4' }}>Compensation for the founder to keep the terminal running and continuous boundaries pushing.</div>
-                  </div>
+                {/* PROTOCOL NOTICE & MAIN REDIRECT */}
+                <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.15)', padding: '10px 14px', borderRadius: '2px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '11px', color: '#888' }}>Need deep documentation, mechanics, or founder roadmap?</span>
+                  <a href="https://www.numbpolys.xyz/" style={{ color: '#06B6D4', fontSize: '11px', textDecoration: 'none', fontWeight: 'bold', letterSpacing: '0.05em' }}>[ EXPLORE ON MAIN → ]</a>
                 </div>
               </div>
             </div>
 
-            {/* --- 2. CLASSIFIED ARCHETYPES (Silhouetted Previews) --- */}
-            <div style={{ width: '100%', maxWidth: '1000px', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '3rem' }}>
-              <h3 style={{ margin: '0 0 1.5rem 0', color: '#06B6D4', textTransform: 'uppercase', letterSpacing: '0.15em', textAlign: 'center' }}>[ CLASSIFIED ARCHETYPES ]</h3>
-              <p style={{ textAlign: 'center', color: '#A3A3A3', fontSize: '0.85rem', marginBottom: '2rem' }}>Awaiting trait decryptions. Base models secured on-chain.</p>
+            {/* --- 2. PROTOCOL TREASURY ROUTING & MINTER VALUE DISTRIBUTION --- */}
+            <div style={{ width: '100%', maxWidth: '1050px', background: 'rgba(255,255,255,0.015)', border: '1px solid rgba(255,255,255,0.1)', padding: '2rem', borderRadius: '2px', boxSizing: 'border-box' }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem', marginBottom: '1.5rem', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '1rem' }}>
+                <div>
+                  <h3 style={{ margin: '0 0 0.25rem 0', color: '#06B6D4', textTransform: 'uppercase', letterSpacing: '0.12em', fontSize: '1rem' }}>// PROTOCOL TREASURY ROUTING</h3>
+                  <div style={{ fontSize: '0.8rem', color: '#A3A3A3' }}>Autonomous distribution of deployment capital toward ecosystem liquidity, TVL, and R&D.</div>
+                </div>
+                <div style={{ fontSize: '0.75rem', color: '#06B6D4', background: 'rgba(6,182,212,0.1)', border: '1px solid rgba(6,182,212,0.3)', padding: '4px 10px', borderRadius: '2px', letterSpacing: '0.05em' }}>
+                  PUBLIC BENCHMARK: 12 SUI
+                </div>
+              </div>
+
+              {/* TIER LOGIC EXPLANATION */}
+              <div style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.06)', padding: '1rem', borderRadius: '2px', marginBottom: '1.5rem' }}>
+                <div style={{ color: '#E5E5E5', fontSize: '0.8rem', fontWeight: 'bold', marginBottom: '0.25rem', letterSpacing: '0.05em' }}>// TIER INDEPENDENCE & EARLY BELIEVER VALUE</div>
+                <p style={{ color: '#888', fontSize: '0.75rem', lineHeight: '1.6', margin: 0 }}>
+                  Each mint phase operates autonomously. GTD (1 SUI) and FCFS (8 SUI) exist specifically to reward early contributors, community stalwarts, and beta testers with heavily subsidized access. The protocol capital model below reflects the 12 SUI Public mint routing, scaling proportionately to back the entire ecosystem.
+                </p>
+              </div>
+
+              {/* ROUTING CARDS GRID */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
+                <div style={{ background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(6, 182, 212, 0.2)', padding: '14px', borderRadius: '2px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <span style={{ color: '#06B6D4', fontSize: '0.8rem', fontWeight: 'bold' }}>5 SUI [ 41.7% ]</span>
+                    <span style={{ fontSize: '9px', color: '#666', border: '1px solid #333', padding: '1px 4px' }}>DEX POOL</span>
+                  </div>
+                  <div style={{ color: '#E5E5E5', fontSize: '0.75rem', fontWeight: 'bold', marginBottom: '4px' }}>ECOSYSTEM LIQUIDITY</div>
+                  <p style={{ color: '#888', fontSize: '0.75rem', margin: 0, lineHeight: '1.5' }}>
+                    Locked directly to bootstrap liquidity for our upcoming native meme token. This token unlocks exclusive rewards and burn-to-earn functions.
+                  </p>
+                </div>
+
+                <div style={{ background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(0, 255, 128, 0.2)', padding: '14px', borderRadius: '2px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <span style={{ color: '#00ff80', fontSize: '0.8rem', fontWeight: 'bold' }}>3 SUI [ 25.0% ]</span>
+                    <span style={{ fontSize: '9px', color: '#666', border: '1px solid #333', padding: '1px 4px' }}>DEFI TVL</span>
+                  </div>
+                  <div style={{ color: '#E5E5E5', fontSize: '0.75rem', fontWeight: 'bold', marginBottom: '4px' }}>STAKING REWARDS VAULT</div>
+                  <p style={{ color: '#888', fontSize: '0.75rem', margin: 0, lineHeight: '1.5' }}>
+                    Allocated directly to native staking protocols, generating on-chain yield that feeds back to active Operative constructors.
+                  </p>
+                </div>
+
+                <div style={{ background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(255, 51, 51, 0.2)', padding: '14px', borderRadius: '2px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <span style={{ color: '#ff3333', fontSize: '0.8rem', fontWeight: 'bold' }}>2 SUI [ 16.7% ]</span>
+                    <span style={{ fontSize: '9px', color: '#666', border: '1px solid #333', padding: '1px 4px' }}>DEV ENGINE</span>
+                  </div>
+                  <div style={{ color: '#E5E5E5', fontSize: '0.75rem', fontWeight: 'bold', marginBottom: '4px' }}>INFRASTRUCTURE & R&D</div>
+                  <p style={{ color: '#888', fontSize: '0.75rem', margin: 0, lineHeight: '1.5' }}>
+                    Subsidizes permanent Walrus Mainnet storage epochs, dynamic gas buffers, and continuous engineering of new experimental Web3 mechanics.
+                  </p>
+                </div>
+
+                <div style={{ background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(255, 255, 255, 0.15)', padding: '14px', borderRadius: '2px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <span style={{ color: '#E5E5E5', fontSize: '0.8rem', fontWeight: 'bold' }}>2 SUI [ 16.7% ]</span>
+                    <span style={{ fontSize: '9px', color: '#666', border: '1px solid #333', padding: '1px 4px' }}>FOUNDER</span>
+                  </div>
+                  <div style={{ color: '#E5E5E5', fontSize: '0.75rem', fontWeight: 'bold', marginBottom: '4px' }}>CREATOR RUNWAY</div>
+                  <p style={{ color: '#888', fontSize: '0.75rem', margin: 0, lineHeight: '1.5' }}>
+                    Sustains solo development operations to maintain 24/7 uptime, deploy contract upgrades, and spearhead the long-term project roadmap.
+                  </p>
+                </div>
+              </div>
+
+              {/* MINTER ROYALTIES & VALUE ACCRUAL */}
+              <div style={{ background: 'rgba(6, 182, 212, 0.04)', border: '1px solid rgba(6, 182, 212, 0.2)', padding: '14px 18px', borderRadius: '2px', display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
+                <div style={{ maxWidth: '800px' }}>
+                  <span style={{ color: '#06B6D4', fontSize: '0.75rem', fontWeight: 'bold', letterSpacing: '0.05em' }}>⚡ MINTER REVENUE SHARING & ON-CHAIN ROYALTIES: </span>
+                  <span style={{ color: '#A3A3A3', fontSize: '0.75rem', lineHeight: '1.5' }}>
+                    Early minters are stakeholders in the ecosystem. A portion of secondary marketplace royalties and upcoming swap protocol fees route directly back to original minters and active Operative holders.
+                  </span>
+                </div>
+                <div style={{ color: '#00ff80', fontSize: '0.8rem', fontWeight: 'bold', letterSpacing: '0.05em' }}>
+                  COMMUNITY FIRST
+                </div>
+              </div>
+            </div>
+
+            {/* --- 3. CLASSIFIED ARCHETYPES (Responsive Scroll Gallery) --- */}
+            <div style={{ width: '100%', maxWidth: '1050px', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '2.5rem' }}>
+              <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
+                <h3 style={{ margin: '0 0 0.5rem 0', color: '#06B6D4', textTransform: 'uppercase', letterSpacing: '0.15em', fontSize: '1.1rem' }}>[ CLASSIFIED ARCHETYPES ]</h3>
+                <p style={{ color: '#A3A3A3', fontSize: '0.85rem', margin: 0 }}>Awaiting trait decryptions. Base models detected on-chain.</p>
+              </div>
               
-              <div style={{ display: 'flex', gap: '1rem', overflowX: 'auto', paddingBottom: '1rem', justifyContent: 'center' }}>
-                {(registryData as any[]).slice(0, 5).map((item, idx) => {
+              <div className="terminal-scroller">
+                {(registryData as any[]).slice(0, 6).map((item, idx) => {
                   const baseBody = item.walrus_urls?.['Base Body'];
                   if (!baseBody) return null;
                   
                   return (
-                    <div key={idx} style={{ flexShrink: 0, width: '160px', background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.1)', padding: '10px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
+                    <div key={idx} style={{ flexShrink: 0, width: '150px', background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.1)', padding: '10px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', boxSizing: 'border-box' }}>
                       <div style={{ width: '100%', aspectRatio: '1/1', position: 'relative', overflow: 'hidden', background: 'rgba(255,255,255,0.02)' }}>
                         <img 
                           src={baseBody} 
                           alt="Classified"
                           style={{ width: '100%', height: '100%', objectFit: 'contain', filter: 'brightness(0) drop-shadow(0px 0px 4px rgba(6, 182, 212, 0.5))', opacity: 0.8 }} 
                         />
-                        <div style={{ position: 'absolute', top: '5px', left: '5px', color: '#ff3333', fontSize: '8px', fontWeight: 'bold', border: '1px solid #ff3333', padding: '2px 4px', background: 'rgba(255,0,0,0.1)' }}>ENCRYPTED</div>
+                        <div style={{ position: 'absolute', top: '4px', left: '4px', color: '#ff3333', fontSize: '7px', fontWeight: 'bold', border: '1px solid #ff3333', padding: '1px 3px', background: 'rgba(255,0,0,0.1)' }}>ENCRYPTED</div>
                       </div>
-                      <div style={{ color: '#E5E5E5', fontSize: '0.7rem', textAlign: 'center', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', width: '100%' }}>
+                      <div style={{ color: '#E5E5E5', fontSize: '0.68rem', textAlign: 'center', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', width: '100%' }}>
                         {item.lore_name.split(' // ')[0]}
                       </div>
                     </div>
@@ -1107,24 +1185,26 @@ function TerminalUI() {
               </div>
             </div>
 
-            {/* --- 3. LIVE ON-CHAIN CONSTRUCTS (Fully Rendered Syncs) --- */}
+            {/* --- 4. LIVE ON-CHAIN CONSTRUCTS (Responsive Scroll Gallery) --- */}
             {account && displayOperatives.length > 0 && (
-              <div style={{ width: '100%', maxWidth: '1000px', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '3rem' }}>
-                <h3 style={{ margin: '0 0 1.5rem 0', color: '#00ff80', textTransform: 'uppercase', letterSpacing: '0.15em', textAlign: 'center' }}>[ YOUR SECURED CONSTRUCTS ]</h3>
-                <p style={{ textAlign: 'center', color: '#A3A3A3', fontSize: '0.85rem', marginBottom: '2rem' }}>Fully rendered 2D static snapshots secured via Terminal synchronization.</p>
-                <div style={{ display: 'flex', gap: '1rem', overflowX: 'auto', paddingBottom: '1rem', justifyContent: 'center' }}>
-                  {displayOperatives.slice(0, 5).map((op: any, idx: number) => {
+              <div style={{ width: '100%', maxWidth: '1050px', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '2.5rem' }}>
+                <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
+                  <h3 style={{ margin: '0 0 0.5rem 0', color: '#00ff80', textTransform: 'uppercase', letterSpacing: '0.15em', fontSize: '1.1rem' }}>[ YOUR SECURED CONSTRUCTS ]</h3>
+                  <p style={{ color: '#A3A3A3', fontSize: '0.85rem', margin: 0 }}>Fully rendered 2D static snapshots secured via Terminal synchronization.</p>
+                </div>
+                <div className="terminal-scroller">
+                  {displayOperatives.slice(0, 6).map((op: any, idx: number) => {
                     const fields = (op.data?.content as any)?.fields;
                     const img = fields?.image_url || fields?.url || '';
                     const name = fields?.name || fields?.lore_name || 'UNKNOWN CONSTRUCT';
                     
                     return (
-                      <div key={idx} style={{ flexShrink: 0, width: '160px', background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(0, 255, 128, 0.2)', padding: '10px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
+                      <div key={idx} style={{ flexShrink: 0, width: '150px', background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(0, 255, 128, 0.2)', padding: '10px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', boxSizing: 'border-box' }}>
                         <div style={{ width: '100%', aspectRatio: '1/1', position: 'relative', background: 'rgba(0,255,128,0.02)' }}>
                           <img src={img} alt={name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-                          <div style={{ position: 'absolute', top: '5px', left: '5px', color: '#00ff80', fontSize: '8px', fontWeight: 'bold', border: '1px solid #00ff80', padding: '2px 4px', background: 'rgba(0,255,0,0.1)' }}>SYNCED</div>
+                          <div style={{ position: 'absolute', top: '4px', left: '4px', color: '#00ff80', fontSize: '7px', fontWeight: 'bold', border: '1px solid #00ff80', padding: '1px 3px', background: 'rgba(0,255,0,0.1)' }}>SYNCED</div>
                         </div>
-                        <div style={{ color: '#E5E5E5', fontSize: '0.7rem', textAlign: 'center', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', width: '100%' }}>
+                        <div style={{ color: '#E5E5E5', fontSize: '0.68rem', textAlign: 'center', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', width: '100%' }}>
                           {name.split(' // ')[0]}
                         </div>
                       </div>
@@ -1134,36 +1214,36 @@ function TerminalUI() {
               </div>
             )}
 
-            {/* --- 4. THE INCINERATOR / BURN MECHANICS --- */}
-            <div style={{ width: '100%', maxWidth: '1000px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '2rem', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '3rem' }}>
-              <div style={{ background: 'rgba(255, 51, 51, 0.05)', border: '1px solid rgba(255, 51, 51, 0.2)', padding: '2rem', borderRadius: '2px' }}>
-                <h3 style={{ margin: '0 0 1rem 0', color: '#ff3333', textTransform: 'uppercase', letterSpacing: '0.1em' }}>// THE INCINERATOR (BURN PROTOCOL)</h3>
-                <p style={{ color: '#A3A3A3', fontSize: '0.85rem', lineHeight: '1.6' }}>
+            {/* --- 5. THE INCINERATOR / BURN MECHANICS & AUDIT VERIFICATION --- */}
+            <div style={{ width: '100%', maxWidth: '1050px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '2rem', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '2.5rem' }}>
+              <div style={{ background: 'rgba(255, 51, 51, 0.05)', border: '1px solid rgba(255, 51, 51, 0.2)', padding: '1.75rem', borderRadius: '2px' }}>
+                <h3 style={{ margin: '0 0 1rem 0', color: '#ff3333', textTransform: 'uppercase', letterSpacing: '0.1em', fontSize: '0.95rem' }}>// THE INCINERATOR (BURN PROTOCOL)</h3>
+                <p style={{ color: '#A3A3A3', fontSize: '0.8rem', lineHeight: '1.6', margin: 0 }}>
                   Constructs are not permanent if you choose to destroy them. Engaging the Incinerator burns your Operative, permanently removing it from circulation and locking it in the on-chain Graveyard. 
                 </p>
-                <ul style={{ color: '#A3A3A3', fontSize: '0.85rem', lineHeight: '1.6', paddingLeft: '1.2rem', margin: '1rem 0 0 0' }}>
+                <ul style={{ color: '#A3A3A3', fontSize: '0.8rem', lineHeight: '1.6', paddingLeft: '1.2rem', margin: '1rem 0 0 0' }}>
                   <li><strong style={{ color: '#E5E5E5' }}>Deflationary Supply:</strong> Total supply decreases forever.</li>
-                  <li><strong style={{ color: '#E5E5E5' }}>Trait Extraction:</strong> Burning may yield raw trait data.</li>
-                  <li><strong style={{ color: '#ff3333' }}>Irreversible:</strong> Once executed, the code cannot be unwritten.</li>
+                  <li><strong style={{ color: '#E5E5E5' }}>Trait Extraction:</strong> Burning yields raw, high-value modular components.</li>
+                  <li><strong style={{ color: '#ff3333' }}>Irreversible:</strong> Once executed on Move, the code cannot be unwritten.</li>
                 </ul>
               </div>
 
-              <div style={{ background: 'rgba(255, 255, 255, 0.02)', border: '1px solid rgba(255, 255, 255, 0.1)', padding: '2rem', borderRadius: '2px' }}>
-                <h3 style={{ margin: '0 0 1rem 0', color: '#06B6D4', textTransform: 'uppercase', letterSpacing: '0.1em' }}>// ON-CHAIN VERIFICATION</h3>
-                <p style={{ color: '#A3A3A3', fontSize: '0.85rem', lineHeight: '1.6', marginBottom: '1rem' }}>
-                  Don't trust, verify. All Numb Polys operations are executed via open-source smart contracts on the Sui Mainnet.
+              <div style={{ background: 'rgba(255, 255, 255, 0.02)', border: '1px solid rgba(255, 255, 255, 0.1)', padding: '1.75rem', borderRadius: '2px' }}>
+                <h3 style={{ margin: '0 0 1rem 0', color: '#06B6D4', textTransform: 'uppercase', letterSpacing: '0.1em', fontSize: '0.95rem' }}>// ON-CHAIN VERIFICATION</h3>
+                <p style={{ color: '#A3A3A3', fontSize: '0.8rem', lineHeight: '1.6', margin: '0 0 1rem 0' }}>
+                  Don't trust, verify. All Numb Polys operations are executed via verified Move smart contracts on the Sui Mainnet.
                 </p>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed rgba(255,255,255,0.1)', paddingBottom: '0.5rem' }}>
-                    <span style={{ color: '#555', fontSize: '0.75rem', textTransform: 'uppercase' }}>Package ID</span>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed rgba(255,255,255,0.1)', paddingBottom: '0.4rem' }}>
+                    <span style={{ color: '#666', fontSize: '0.75rem', textTransform: 'uppercase' }}>Package ID</span>
                     <span style={{ color: '#E5E5E5', fontSize: '0.75rem', fontFamily: 'monospace' }}>{ORIGINAL_PACKAGE_ID.slice(0,6)}...{ORIGINAL_PACKAGE_ID.slice(-4)}</span>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed rgba(255,255,255,0.1)', paddingBottom: '0.5rem' }}>
-                    <span style={{ color: '#555', fontSize: '0.75rem', textTransform: 'uppercase' }}>Registry Obj</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed rgba(255,255,255,0.1)', paddingBottom: '0.4rem' }}>
+                    <span style={{ color: '#666', fontSize: '0.75rem', textTransform: 'uppercase' }}>Registry Obj</span>
                     <span style={{ color: '#E5E5E5', fontSize: '0.75rem', fontFamily: 'monospace' }}>{REGISTRY_ID.slice(0,6)}...{REGISTRY_ID.slice(-4)}</span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: '#555', fontSize: '0.75rem', textTransform: 'uppercase' }}>Storage Engine</span>
+                    <span style={{ color: '#666', fontSize: '0.75rem', textTransform: 'uppercase' }}>Storage Engine</span>
                     <span style={{ color: '#E5E5E5', fontSize: '0.75rem', fontFamily: 'monospace' }}>Walrus.Space</span>
                   </div>
                 </div>
@@ -1185,7 +1265,7 @@ function TerminalUI() {
                   </div>
                 )}
               </div>
-              <div style={{ display: 'flex', overflowX: 'auto', gap: '10px', paddingBottom: '10px' }}>
+              <div className="terminal-scroller">
                 {paginatedOperatives.map((op: any, index: number) => {
                   const isOpSelected = selectedOpId === (op.data?.objectId || op.address);
                   return (
