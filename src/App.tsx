@@ -288,6 +288,17 @@ function TerminalUI() {
   const mintPriceSui = Number(mintPriceMist) / 1000000000;
   const activeBatch = ESCALATION_MATRIX.find(b => b.phase === currentPhase) || ESCALATION_MATRIX[0];
 
+  // --- NEW: BATCH LIMIT CALCULATION LOGIC ---
+  const currentBatchLimit = 111 + (currentPhase * 100);
+  const remainingInBatch = Math.max(0, currentBatchLimit - publicIndex);
+
+  // Auto-adjust mint quantity if remaining supply dips below their selected number
+  useEffect(() => {
+    if (remainingInBatch > 0 && mintQuantity > remainingInBatch) {
+      setMintQuantity(remainingInBatch);
+    }
+  }, [remainingInBatch, mintQuantity]);
+
   const { data: ownedOperatives, refetch: refetchOperatives } = useSuiClientQuery('getOwnedObjects', { owner: account?.address as string, filter: { StructType: `${ORIGINAL_PACKAGE_ID}::operative::Operative` }, options: { showContent: true } }, { enabled: !!account });
   const { data: looseTraits, refetch: refetchTraits } = useSuiClientQuery('getOwnedObjects', { owner: account?.address as string, filter: { StructType: `${ORIGINAL_PACKAGE_ID}::operative::Trait` }, options: { showContent: true } }, { enabled: !!account && activeView === 'ARMORY' });
 
@@ -755,15 +766,19 @@ function TerminalUI() {
   };
 
   const mintOperative = async () => {
-    if (!account || isProcessingTx || currentPhase === 0) return;
+    // Failsafes to prevent minting if paused or out of allocation
+    if (!account || isProcessingTx || currentPhase === 0 || remainingInBatch <= 0) return;
+
+    // Safety clamp just in case UI somehow bypassed the button disabled states
+    const actualCount = Math.min(mintQuantity, remainingInBatch);
 
     setIsProcessingTx(true);
-    displayTxMessage(`[ PREPARING BATCH MINT (${mintQuantity})... PLEASE SIGN ]`);
+    displayTxMessage(`[ PREPARING BATCH MINT (${actualCount})... PLEASE SIGN ]`);
 
     try {
       const tx = new Transaction();
 
-      for (let i = 0; i < mintQuantity; i++) {
+      for (let i = 0; i < actualCount; i++) {
         const tokenData = registryData[publicIndex + i];
         if (!tokenData) throw new Error("Metadata index out of bounds");
 
@@ -888,6 +903,7 @@ function TerminalUI() {
     padding: '14px', background: account ? '#E5E5E5' : 'rgba(255,255,255,0.03)', color: account ? '#0D0D11' : '#555', border: account ? '1px solid #E5E5E5' : '1px solid rgba(255,255,255,0.1)', cursor: account ? 'pointer' : 'not-allowed', fontFamily: 'inherit', fontWeight: '600', borderRadius: '2px', textTransform: 'uppercase' as const, letterSpacing: '0.1em', transition: 'all 0.3s ease', width: '100%'
   };
 
+  // DYNAMIC BUTTON RENDER BASED ON PHASE & ALLOCATION REMAINING
   if (account) {
     if (currentPhase === 0) {
       buttonText = 'MINT PAUSED'; 
@@ -895,6 +911,13 @@ function TerminalUI() {
       buttonStyle.background = 'rgba(255,51,51,0.1)'; 
       buttonStyle.color = '#ff3333'; 
       buttonStyle.border = '1px dashed #ff3333'; 
+      buttonStyle.cursor = 'not-allowed';
+    } else if (remainingInBatch <= 0) {
+      buttonText = `[ BATCH ${currentPhase.toString().padStart(2, '0')} ALLOCATION DEPLETED ]`; 
+      buttonDisabled = true; 
+      buttonStyle.background = 'rgba(255, 165, 0, 0.05)'; 
+      buttonStyle.color = 'orange'; 
+      buttonStyle.border = '1px dashed orange'; 
       buttonStyle.cursor = 'not-allowed';
     } else {
       const totalCost = mintQuantity * mintPriceSui;
@@ -1003,7 +1026,7 @@ function TerminalUI() {
                 </div>
 
                 {/* ACTIVE BATCH MATRIX */}
-                <div style={{ background: 'rgba(6,182,212,0.05)', border: '1px solid #06B6D4', padding: '16px', borderRadius: '2px', textAlign: 'center' }}>
+                <div style={{ background: 'rgba(6,182,212,0.05)', border: '1px solid #06B6D4', padding: '16px', borderRadius: '2px', textAlign: 'center', position: 'relative' }}>
                   <div style={{ fontSize: '10px', color: '#06B6D4', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '8px', fontWeight: 'bold' }}>
                     // ACTIVE DEPLOYMENT PHASE: {activeBatch.phase.toString().padStart(2, '0')}
                   </div>
@@ -1013,6 +1036,13 @@ function TerminalUI() {
                   <div style={{ fontSize: '11px', color: '#A3A3A3', marginTop: '8px', lineHeight: '1.5' }}>
                     {activeBatch.lore}
                   </div>
+                  
+                  {/* NEW LIVE TRACKER */}
+                  {currentPhase > 0 && (
+                    <div style={{ fontSize: '11px', color: remainingInBatch > 0 ? '#ff3333' : '#666', marginTop: '14px', fontWeight: 'bold', letterSpacing: '0.1em' }}>
+                      // {remainingInBatch} CONSTRUCTS REMAINING IN BATCH //
+                    </div>
+                  )}
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -1022,16 +1052,19 @@ function TerminalUI() {
                         // SELECT DEPLOYMENT QUANTITY
                       </div>
                       <div style={{ display: 'flex', gap: '0.5rem' }}>
-                        {[1, 2, 3, 4, 5].map(num => (
-                          <button 
-                            key={num}
-                            disabled={isProcessingTx}
-                            onClick={() => setMintQuantity(num)}
-                            style={{ flex: 1, padding: '10px', background: mintQuantity === num ? '#E5E5E5' : 'rgba(255,255,255,0.03)', color: mintQuantity === num ? '#0D0D11' : '#E5E5E5', border: mintQuantity === num ? '1px solid #E5E5E5' : '1px solid rgba(255,255,255,0.1)', cursor: isProcessingTx ? 'not-allowed' : 'pointer', fontFamily: 'inherit', fontWeight: 'bold', borderRadius: '2px', transition: 'all 0.2s ease' }}
-                          >
-                            {num}
-                          </button>
-                        ))}
+                        {[1, 2, 3, 4, 5].map(num => {
+                          const isSelectable = num <= remainingInBatch;
+                          return (
+                            <button 
+                              key={num}
+                              disabled={!isSelectable || isProcessingTx}
+                              onClick={() => setMintQuantity(num)}
+                              style={{ flex: 1, padding: '10px', background: mintQuantity === num ? '#E5E5E5' : 'rgba(255,255,255,0.03)', color: mintQuantity === num ? '#0D0D11' : (isSelectable ? '#E5E5E5' : '#555'), border: mintQuantity === num ? '1px solid #E5E5E5' : '1px solid rgba(255,255,255,0.1)', cursor: (!isSelectable || isProcessingTx) ? 'not-allowed' : 'pointer', fontFamily: 'inherit', fontWeight: 'bold', borderRadius: '2px', transition: 'all 0.2s ease' }}
+                            >
+                              {num}
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
