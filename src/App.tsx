@@ -61,6 +61,20 @@ const toRoman = (num: number): string => {
   return res;
 };
 
+// --- THE ESCALATION MATRIX ---
+const ESCALATION_MATRIX = [
+  { phase: 1, name: "Batch 01 // The Vanguard", lore: "The genesis entry. Purely for the early operators who see the vision first." },
+  { phase: 2, name: "Batch 02 // The Recon Protocol", lore: "Mapping the ecosystem. Momentum is established; the early discount tightens." },
+  { phase: 3, name: "Batch 03 // The Iron Grid", lore: "Establishing the infrastructure. TradePort indexing is moving." },
+  { phase: 4, name: "Batch 04 // The Static Runners", lore: "Navigating the market noise. The standard entry point as visibility scales." },
+  { phase: 5, name: "Batch 05 // The Obsidian Core", lore: "The foundation of the syndicate. The true value of the dynamic architecture is now public." },
+  { phase: 6, name: "Batch 06 // The Crimson Shift", lore: "The turning point of the infiltration. FOMO accelerates as supply begins to visibly contract." },
+  { phase: 7, name: "Batch 07 // The Earthen Cartel", lore: "Locking down the underground. Late adopters pay the premium for waiting for the grid to fill." },
+  { phase: 8, name: "Batch 08 // The Phantom Asset", lore: "High-level operatives only. The supply is scarce." },
+  { phase: 9, name: "Batch 09 // The Golden Hierarchy", lore: "The elite ranks emerge. The terminal is highly active with trait trading." },
+  { phase: 10, name: "Batch 10 // The Mythic Unknown", lore: "The final anomalies enter circulation." }
+];
+
 // --- MEMOIZED ROLLING THUMBNAIL ---
 const ConstructThumbnail = React.memo(({ op, index, isSelected, activeGear, onClick, suiClient, isProcessingTx, refreshCounter, retryRpc }: any) => {
   const id = op.data?.objectId || op.address;
@@ -264,26 +278,15 @@ function TerminalUI() {
   };
 
   const { data: registryObj, refetch: refetchRegistry } = useSuiClientQuery('getObject', { id: REGISTRY_ID, options: { showContent: true } });
-  const { data: v3StateObj } = useSuiClientQuery('getObject', { id: V3_STATE_ID, options: { showContent: true } }, { enabled: !!V3_STATE_ID });
 
   const regFields = (registryObj?.data?.content as any)?.fields;
   const currentPhase = regFields?.phase !== undefined ? Number(regFields.phase) : 0; 
   const publicIndex = regFields?.public_minted ? parseInt(regFields.public_minted) : 111;
-  const v3Fields = (v3StateObj?.data?.content as any)?.fields;
   
-  // MINT PRICES (IN MIST & SUI EQUIVALENT)
-  const mintPriceMist = regFields?.mint_price || "12000000000"; // 12 SUI (Public)
-  const gtdPriceMist = v3Fields?.gtd_price || "1000000000";     // 1 SUI (GTD)
-  const fcfsPriceMist = v3Fields?.fcfs_price || "8000000000";   // 8 SUI (FCFS)
-
+  // DYNAMIC PRICING AND BATCH MAPPING
+  const mintPriceMist = regFields?.mint_price || "0"; 
   const mintPriceSui = Number(mintPriceMist) / 1000000000;
-  const gtdPriceSui = Number(gtdPriceMist) / 1000000000;
-  const fcfsPriceSui = Number(fcfsPriceMist) / 1000000000;
-
-  const { data: gtdTickets, refetch: refetchGtd } = useSuiClientQuery('getOwnedObjects', { owner: account?.address as string, filter: { StructType: `${ACTIVE_PACKAGE}::operative::GtdTicket` } }, { enabled: !!account && activeView === 'GENERATOR' });
-  const { data: fcfsTickets, refetch: refetchFcfs } = useSuiClientQuery('getOwnedObjects', { owner: account?.address as string, filter: { StructType: `${ACTIVE_PACKAGE}::operative::FcfsTicket` } }, { enabled: !!account && activeView === 'GENERATOR' });
-  const availableGtd = gtdTickets?.data || [];
-  const availableFcfs = fcfsTickets?.data || [];
+  const activeBatch = ESCALATION_MATRIX.find(b => b.phase === currentPhase) || ESCALATION_MATRIX[0];
 
   const { data: ownedOperatives, refetch: refetchOperatives } = useSuiClientQuery('getOwnedObjects', { owner: account?.address as string, filter: { StructType: `${ORIGINAL_PACKAGE_ID}::operative::Operative` }, options: { showContent: true } }, { enabled: !!account });
   const { data: looseTraits, refetch: refetchTraits } = useSuiClientQuery('getOwnedObjects', { owner: account?.address as string, filter: { StructType: `${ORIGINAL_PACKAGE_ID}::operative::Trait` }, options: { showContent: true } }, { enabled: !!account && activeView === 'ARMORY' });
@@ -384,8 +387,6 @@ function TerminalUI() {
     
     if (selectedOpId) await loadEquippedTraits(selectedOpId);
     await refetchRegistry();
-    await refetchGtd();
-    await refetchFcfs();
     await refetchTraits();
     await refetchOperatives();
     
@@ -754,31 +755,15 @@ function TerminalUI() {
   };
 
   const mintOperative = async () => {
-    if (!account || isProcessingTx) return;
-    if (currentPhase === 0) return;
-
-    let activeTickets: any[] = [];
-    let activePrice = mintPriceMist;
-    
-    if (currentPhase === 1) { 
-        if (availableGtd.length === 0) return;
-        activeTickets = availableGtd; 
-        activePrice = gtdPriceMist; 
-    } else if (currentPhase === 2) { 
-        if (availableFcfs.length === 0) return;
-        activeTickets = availableFcfs; 
-        activePrice = fcfsPriceMist; 
-    }
-
-    const actualCount = (currentPhase === 1 || currentPhase === 2) ? Math.min(mintQuantity, activeTickets.length) : mintQuantity;
+    if (!account || isProcessingTx || currentPhase === 0) return;
 
     setIsProcessingTx(true);
-    displayTxMessage(`[ PREPARING BATCH MINT (${actualCount})... PLEASE SIGN ]`);
+    displayTxMessage(`[ PREPARING BATCH MINT (${mintQuantity})... PLEASE SIGN ]`);
 
     try {
       const tx = new Transaction();
 
-      for (let i = 0; i < actualCount; i++) {
+      for (let i = 0; i < mintQuantity; i++) {
         const tokenData = registryData[publicIndex + i];
         if (!tokenData) throw new Error("Metadata index out of bounds");
 
@@ -802,15 +787,21 @@ function TerminalUI() {
           }
         });
 
-        const [feeCoin] = tx.splitCoins(tx.gas, [tx.pure.u64(activePrice)]);
+        const [feeCoin] = tx.splitCoins(tx.gas, [tx.pure.u64(mintPriceMist)]);
 
-        if (currentPhase === 1) {
-          tx.moveCall({ target: `${ACTIVE_PACKAGE}::operative::gtd_mint`, arguments: [ tx.object(REGISTRY_ID), tx.object(V3_STATE_ID), tx.object(activeTickets[i].data!.objectId), feeCoin, tx.pure.string(tokenData.lore_name), tx.pure.string(tokenData.display_traits['Rarity Tier']), tx.pure.string((tokenData.walrus_urls as any)['Base Body'] || ""), tx.pure.vector('string', traitCategories), tx.pure.vector('string', traitNames), tx.pure.vector('string', traitUrls) ] });
-        } else if (currentPhase === 2) {
-          tx.moveCall({ target: `${ACTIVE_PACKAGE}::operative::fcfs_mint`, arguments: [ tx.object(REGISTRY_ID), tx.object(V3_STATE_ID), tx.object(activeTickets[i].data!.objectId), feeCoin, tx.pure.string(tokenData.lore_name), tx.pure.string(tokenData.display_traits['Rarity Tier']), tx.pure.string((tokenData.walrus_urls as any)['Base Body'] || ""), tx.pure.vector('string', traitCategories), tx.pure.vector('string', traitNames), tx.pure.vector('string', traitUrls) ] });
-        } else if (currentPhase === 3) {
-          tx.moveCall({ target: `${ACTIVE_PACKAGE}::operative::public_mint`, arguments: [ tx.object(REGISTRY_ID), feeCoin, tx.pure.string(tokenData.lore_name), tx.pure.string(tokenData.display_traits['Rarity Tier']), tx.pure.string((tokenData.walrus_urls as any)['Base Body'] || ""), tx.pure.vector('string', traitCategories), tx.pure.vector('string', traitNames), tx.pure.vector('string', traitUrls) ] });
-        }
+        tx.moveCall({ 
+          target: `${ACTIVE_PACKAGE}::operative::public_mint`, 
+          arguments: [ 
+            tx.object(REGISTRY_ID), 
+            feeCoin, 
+            tx.pure.string(tokenData.lore_name), 
+            tx.pure.string(tokenData.display_traits['Rarity Tier']), 
+            tx.pure.string((tokenData.walrus_urls as any)['Base Body'] || ""), 
+            tx.pure.vector('string', traitCategories), 
+            tx.pure.vector('string', traitNames), 
+            tx.pure.vector('string', traitUrls) 
+          ] 
+        });
       }
 
       signAndExecuteTransaction(
@@ -899,26 +890,19 @@ function TerminalUI() {
 
   if (account) {
     if (currentPhase === 0) {
-      buttonText = 'MINT PAUSED'; buttonDisabled = true; buttonStyle.background = 'rgba(255,51,51,0.1)'; buttonStyle.color = '#ff3333'; buttonStyle.border = '1px dashed #ff3333'; buttonStyle.cursor = 'not-allowed';
-    } else if (currentPhase === 1) {
-      if (availableGtd.length > 0) {
-        const selectedQty = Math.min(mintQuantity, availableGtd.length);
-        buttonText = isProcessingTx ? '⚡ PROCESSING...' : `⚡ MINT ${selectedQty} [ ${selectedQty * gtdPriceSui} SUI ]`; 
-        buttonDisabled = isProcessingTx; buttonStyle.background = 'rgba(0, 255, 0, 0.1)'; buttonStyle.color = '#00ff00'; buttonStyle.border = '1px solid #00ff00';
-      } else {
-        buttonText = 'NO GTD TICKETS FOUND'; buttonDisabled = true; buttonStyle.background = 'rgba(255,255,255,0.03)'; buttonStyle.color = '#555'; buttonStyle.border = '1px solid rgba(255,255,255,0.1)'; buttonStyle.cursor = 'not-allowed';
-      }
-    } else if (currentPhase === 2) {
-      if (availableFcfs.length > 0) {
-        const selectedQty = Math.min(mintQuantity, availableFcfs.length);
-        buttonText = isProcessingTx ? '⚡ PROCESSING...' : `⚡ MINT ${selectedQty} [ ${selectedQty * fcfsPriceSui} SUI ]`; 
-        buttonDisabled = isProcessingTx; buttonStyle.background = 'rgba(255, 165, 0, 0.1)'; buttonStyle.color = 'orange'; buttonStyle.border = '1px solid orange';
-      } else {
-        buttonText = 'NO FCFS TICKETS FOUND'; buttonDisabled = true; buttonStyle.background = 'rgba(255,255,255,0.03)'; buttonStyle.color = '#555'; buttonStyle.border = '1px solid rgba(255,255,255,0.1)'; buttonStyle.cursor = 'not-allowed';
-      }
-    } else if (currentPhase === 3) {
-      buttonText = isProcessingTx ? '⚡ PROCESSING...' : `⚡ DEPLOY ${mintQuantity} CONSTRUCT(S) [ ${mintQuantity * mintPriceSui} SUI ]`; 
+      buttonText = 'MINT PAUSED'; 
+      buttonDisabled = true; 
+      buttonStyle.background = 'rgba(255,51,51,0.1)'; 
+      buttonStyle.color = '#ff3333'; 
+      buttonStyle.border = '1px dashed #ff3333'; 
+      buttonStyle.cursor = 'not-allowed';
+    } else {
+      const totalCost = mintQuantity * mintPriceSui;
+      buttonText = isProcessingTx ? '⚡ PROCESSING...' : `⚡ DEPLOY ${mintQuantity} CONSTRUCT(S) [ ${totalCost.toFixed(2)} SUI ]`; 
       buttonDisabled = isProcessingTx;
+      buttonStyle.background = 'rgba(6, 182, 212, 0.1)'; 
+      buttonStyle.color = '#06B6D4'; 
+      buttonStyle.border = '1px solid #06B6D4';
     }
   }
 
@@ -953,7 +937,7 @@ function TerminalUI() {
           overflow-x: auto;
           width: 100%;
           box-sizing: border-box;
-          padding: 0.5rem 0.5rem 1.25rem 0.5rem;
+          padding: 0.5rem;
           justify-content: flex-start;
           -webkit-overflow-scrolling: touch;
           scrollbar-width: thin;
@@ -1018,22 +1002,16 @@ function TerminalUI() {
                   </p>
                 </div>
 
-                {/* ACCESS TIERS MATRIX */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem' }}>
-                  <div style={{ background: currentPhase === 1 ? 'rgba(0,255,0,0.08)' : 'rgba(255,255,255,0.02)', border: currentPhase === 1 ? '1px solid #00ff00' : '1px solid rgba(255,255,255,0.08)', padding: '10px 8px', borderRadius: '2px', textAlign: 'center' }}>
-                    <div style={{ fontSize: '9px', color: currentPhase === 1 ? '#00ff00' : '#888', letterSpacing: '0.08em', textTransform: 'uppercase' }}>GTD UPLINK</div>
-                    <div style={{ fontSize: '14px', fontWeight: 'bold', color: currentPhase === 1 ? '#00ff00' : '#E5E5E5', margin: '4px 0' }}>1 SUI</div>
-                    <div style={{ fontSize: '8px', color: '#666' }}>EARLY ACCESS</div>
+                {/* ACTIVE BATCH MATRIX */}
+                <div style={{ background: 'rgba(6,182,212,0.05)', border: '1px solid #06B6D4', padding: '16px', borderRadius: '2px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '10px', color: '#06B6D4', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '8px', fontWeight: 'bold' }}>
+                    // ACTIVE DEPLOYMENT PHASE: {activeBatch.phase.toString().padStart(2, '0')}
                   </div>
-                  <div style={{ background: currentPhase === 2 ? 'rgba(255,165,0,0.08)' : 'rgba(255,255,255,0.02)', border: currentPhase === 2 ? '1px solid orange' : '1px solid rgba(255,255,255,0.08)', padding: '10px 8px', borderRadius: '2px', textAlign: 'center' }}>
-                    <div style={{ fontSize: '9px', color: currentPhase === 2 ? 'orange' : '#888', letterSpacing: '0.08em', textTransform: 'uppercase' }}>FCFS TIER</div>
-                    <div style={{ fontSize: '14px', fontWeight: 'bold', color: currentPhase === 2 ? 'orange' : '#E5E5E5', margin: '4px 0' }}>8 SUI</div>
-                    <div style={{ fontSize: '8px', color: '#666' }}>DISCOUNT ACCESS</div>
+                  <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#E5E5E5', margin: '4px 0', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                    {activeBatch.name}
                   </div>
-                  <div style={{ background: currentPhase === 3 ? 'rgba(6,182,212,0.08)' : 'rgba(255,255,255,0.02)', border: currentPhase === 3 ? '1px solid #06B6D4' : '1px solid rgba(255,255,255,0.08)', padding: '10px 8px', borderRadius: '2px', textAlign: 'center' }}>
-                    <div style={{ fontSize: '9px', color: currentPhase === 3 ? '#06B6D4' : '#888', letterSpacing: '0.08em', textTransform: 'uppercase' }}>PUBLIC MINT</div>
-                    <div style={{ fontSize: '14px', fontWeight: 'bold', color: currentPhase === 3 ? '#06B6D4' : '#E5E5E5', margin: '4px 0' }}>12 SUI</div>
-                    <div style={{ fontSize: '8px', color: '#666' }}>OPEN ACCESS</div>
+                  <div style={{ fontSize: '11px', color: '#A3A3A3', marginTop: '8px', lineHeight: '1.5' }}>
+                    {activeBatch.lore}
                   </div>
                 </div>
 
@@ -1041,22 +1019,19 @@ function TerminalUI() {
                   {account && currentPhase !== 0 && (
                     <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                       <div style={{ color: '#E5E5E5', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
-                        // SELECT DEPLOYMENT BATCH
+                        // SELECT DEPLOYMENT QUANTITY
                       </div>
                       <div style={{ display: 'flex', gap: '0.5rem' }}>
-                        {[1, 2, 3, 4, 5].map(num => {
-                          const isSelectable = currentPhase === 1 ? num <= availableGtd.length : currentPhase === 2 ? num <= availableFcfs.length : true;
-                          return (
-                            <button 
-                              key={num}
-                              disabled={!isSelectable || isProcessingTx}
-                              onClick={() => setMintQuantity(num)}
-                              style={{ flex: 1, padding: '10px', background: mintQuantity === num ? '#E5E5E5' : 'rgba(255,255,255,0.03)', color: mintQuantity === num ? '#0D0D11' : (isSelectable ? '#E5E5E5' : '#555'), border: mintQuantity === num ? '1px solid #E5E5E5' : '1px solid rgba(255,255,255,0.1)', cursor: (!isSelectable || isProcessingTx) ? 'not-allowed' : 'pointer', fontFamily: 'inherit', fontWeight: 'bold', borderRadius: '2px', transition: 'all 0.2s ease' }}
-                            >
-                              {num}
-                            </button>
-                          );
-                        })}
+                        {[1, 2, 3, 4, 5].map(num => (
+                          <button 
+                            key={num}
+                            disabled={isProcessingTx}
+                            onClick={() => setMintQuantity(num)}
+                            style={{ flex: 1, padding: '10px', background: mintQuantity === num ? '#E5E5E5' : 'rgba(255,255,255,0.03)', color: mintQuantity === num ? '#0D0D11' : '#E5E5E5', border: mintQuantity === num ? '1px solid #E5E5E5' : '1px solid rgba(255,255,255,0.1)', cursor: isProcessingTx ? 'not-allowed' : 'pointer', fontFamily: 'inherit', fontWeight: 'bold', borderRadius: '2px', transition: 'all 0.2s ease' }}
+                          >
+                            {num}
+                          </button>
+                        ))}
                       </div>
                     </div>
                   )}
@@ -1080,24 +1055,29 @@ function TerminalUI() {
                   <h3 style={{ margin: '0 0 0.25rem 0', color: '#06B6D4', textTransform: 'uppercase', letterSpacing: '0.12em', fontSize: '1rem' }}>// PROTOCOL TREASURY ROUTING</h3>
                   <div style={{ fontSize: '0.8rem', color: '#A3A3A3' }}>Autonomous distribution of deployment capital toward ecosystem liquidity, TVL, and R&D.</div>
                 </div>
-                <div style={{ fontSize: '0.75rem', color: '#06B6D4', background: 'rgba(6,182,212,0.1)', border: '1px solid rgba(6,182,212,0.3)', padding: '4px 10px', borderRadius: '2px', letterSpacing: '0.05em' }}>
-                  PUBLIC BENCHMARK: 12 SUI
-                </div>
               </div>
 
               {/* TIER LOGIC EXPLANATION */}
               <div style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.06)', padding: '1rem', borderRadius: '2px', marginBottom: '1.5rem' }}>
                 <div style={{ color: '#E5E5E5', fontSize: '0.8rem', fontWeight: 'bold', marginBottom: '0.25rem', letterSpacing: '0.05em' }}>// TIER INDEPENDENCE & EARLY BELIEVER VALUE</div>
                 <p style={{ color: '#888', fontSize: '0.75rem', lineHeight: '1.6', margin: 0 }}>
-                  Each mint phase operates autonomously. GTD (1 SUI) and FCFS (8 SUI) exist specifically to reward early contributors, community stalwarts, and beta testers with heavily subsidized access. The protocol capital model below reflects the 12 SUI Public mint routing, scaling proportionately to back the entire ecosystem.
+                  The Numb Polys mint rolls out through independent thematic batches. Early operators and community stalwarts are rewarded with heavily subsidized, lower-cost access. As the ecosystem establishes and infrastructure expands, the entry threshold dynamically shifts. The capital model below dynamically routes the current batch pricing to back and scale the entire project.
                 </p>
+              </div>
+              
+              {/* DYNAMIC TREASURY BAR */}
+              <div style={{ display: 'flex', width: '100%', height: '24px', borderRadius: '2px', overflow: 'hidden', marginBottom: '1.5rem', border: '1px solid rgba(255,255,255,0.1)' }}>
+                <div style={{ width: '35%', background: '#06B6D4', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0D0D11', fontSize: '0.7rem', fontWeight: 'bold' }}>35%</div>
+                <div style={{ width: '20%', background: '#00ff80', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0D0D11', fontSize: '0.7rem', fontWeight: 'bold' }}>20%</div>
+                <div style={{ width: '15%', background: '#ff3333', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0D0D11', fontSize: '0.7rem', fontWeight: 'bold' }}>15%</div>
+                <div style={{ width: '30%', background: '#E5E5E5', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0D0D11', fontSize: '0.7rem', fontWeight: 'bold' }}>30%</div>
               </div>
 
               {/* ROUTING CARDS GRID */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
                 <div style={{ background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(6, 182, 212, 0.2)', padding: '14px', borderRadius: '2px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                    <span style={{ color: '#06B6D4', fontSize: '0.8rem', fontWeight: 'bold' }}>5 SUI [ 41.7% ]</span>
+                    <span style={{ color: '#06B6D4', fontSize: '0.8rem', fontWeight: 'bold' }}>{(mintPriceSui * 0.35).toFixed(2)} SUI [35%]</span>
                     <span style={{ fontSize: '9px', color: '#666', border: '1px solid #333', padding: '1px 4px' }}>DEX POOL</span>
                   </div>
                   <div style={{ color: '#E5E5E5', fontSize: '0.75rem', fontWeight: 'bold', marginBottom: '4px' }}>ECOSYSTEM LIQUIDITY</div>
@@ -1108,7 +1088,7 @@ function TerminalUI() {
 
                 <div style={{ background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(0, 255, 128, 0.2)', padding: '14px', borderRadius: '2px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                    <span style={{ color: '#00ff80', fontSize: '0.8rem', fontWeight: 'bold' }}>3 SUI [ 25.0% ]</span>
+                    <span style={{ color: '#00ff80', fontSize: '0.8rem', fontWeight: 'bold' }}>{(mintPriceSui * 0.20).toFixed(2)} SUI [20%]</span>
                     <span style={{ fontSize: '9px', color: '#666', border: '1px solid #333', padding: '1px 4px' }}>DEFI TVL</span>
                   </div>
                   <div style={{ color: '#E5E5E5', fontSize: '0.75rem', fontWeight: 'bold', marginBottom: '4px' }}>STAKING REWARDS VAULT</div>
@@ -1119,7 +1099,7 @@ function TerminalUI() {
 
                 <div style={{ background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(255, 51, 51, 0.2)', padding: '14px', borderRadius: '2px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                    <span style={{ color: '#ff3333', fontSize: '0.8rem', fontWeight: 'bold' }}>2 SUI [ 16.7% ]</span>
+                    <span style={{ color: '#ff3333', fontSize: '0.8rem', fontWeight: 'bold' }}>{(mintPriceSui * 0.15).toFixed(2)} SUI [15%]</span>
                     <span style={{ fontSize: '9px', color: '#666', border: '1px solid #333', padding: '1px 4px' }}>DEV ENGINE</span>
                   </div>
                   <div style={{ color: '#E5E5E5', fontSize: '0.75rem', fontWeight: 'bold', marginBottom: '4px' }}>INFRASTRUCTURE & R&D</div>
@@ -1130,7 +1110,7 @@ function TerminalUI() {
 
                 <div style={{ background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(255, 255, 255, 0.15)', padding: '14px', borderRadius: '2px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                    <span style={{ color: '#E5E5E5', fontSize: '0.8rem', fontWeight: 'bold' }}>2 SUI [ 16.7% ]</span>
+                    <span style={{ color: '#E5E5E5', fontSize: '0.8rem', fontWeight: 'bold' }}>{(mintPriceSui * 0.30).toFixed(2)} SUI [30%]</span>
                     <span style={{ fontSize: '9px', color: '#666', border: '1px solid #333', padding: '1px 4px' }}>FOUNDER</span>
                   </div>
                   <div style={{ color: '#E5E5E5', fontSize: '0.75rem', fontWeight: 'bold', marginBottom: '4px' }}>CREATOR RUNWAY</div>
@@ -1145,7 +1125,7 @@ function TerminalUI() {
                 <div style={{ maxWidth: '800px' }}>
                   <span style={{ color: '#06B6D4', fontSize: '0.75rem', fontWeight: 'bold', letterSpacing: '0.05em' }}>⚡ MINTER REVENUE SHARING & ON-CHAIN ROYALTIES: </span>
                   <span style={{ color: '#A3A3A3', fontSize: '0.75rem', lineHeight: '1.5' }}>
-                    Early minters are stakeholders in the ecosystem. A portion of secondary marketplace royalties and upcoming swap protocol fees route directly back to original minters and active Operative holders.
+                    Early minters and believers are true stakeholders in the ecosystem. A portion of secondary marketplace royalties and upcoming swap protocol fees route directly back to original minters and active Operative holders.
                   </span>
                 </div>
                 <div style={{ color: '#00ff80', fontSize: '0.8rem', fontWeight: 'bold', letterSpacing: '0.05em' }}>
