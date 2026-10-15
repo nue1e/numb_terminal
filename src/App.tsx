@@ -608,24 +608,43 @@ function TerminalUI() {
       const displayId = objects.data[0].data?.objectId;
       if (!displayId) throw new Error("Invalid Display Object ID");
       
-      displayTxMessage(`[ INJECTING COLLECTION IDENTITY... PLEASE SIGN ]`);
+      displayTxMessage(`[ INJECTING FULL MARKETPLACE METADATA... PLEASE SIGN ]`);
 
       const tx = new Transaction();
+      const typeArg = `${ORIGINAL_PACKAGE_ID}::operative::Operative`;
+
+      // 1. Route the individual item name
+tx.moveCall({
+  target: `0x2::display::${mode}`,
+  typeArguments: [typeArg],
+  arguments: [tx.object(displayId), tx.pure.string('name'), tx.pure.string('{lore_name}')]
+});
+
+      // 2. Route the individual compiled image
       tx.moveCall({
         target: `0x2::display::${mode}`,
-        typeArguments: [`${ORIGINAL_PACKAGE_ID}::operative::Operative`],
+        typeArguments: [typeArg],
+        arguments: [tx.object(displayId), tx.pure.string('image_url'), tx.pure.string('{image_url}')]
+      });
+
+      // 3. Set the global collection name (fixes the generic collection title)
+      tx.moveCall({
+        target: `0x2::display::${mode}`,
+        typeArguments: [typeArg],
         arguments: [tx.object(displayId), tx.pure.string('project_name'), tx.pure.string(globalProjectName)]
       });
       
+      // 4. Set the global collection avatar
       tx.moveCall({
         target: `0x2::display::${mode}`,
-        typeArguments: [`${ORIGINAL_PACKAGE_ID}::operative::Operative`],
+        typeArguments: [typeArg],
         arguments: [tx.object(displayId), tx.pure.string('project_image_url'), tx.pure.string(globalProjectImage)]
       });
       
+      // 5. Publish the updates to the network
       tx.moveCall({
         target: '0x2::display::update_version',
-        typeArguments: [`${ORIGINAL_PACKAGE_ID}::operative::Operative`],
+        typeArguments: [typeArg],
         arguments: [tx.object(displayId)]
       });
       
