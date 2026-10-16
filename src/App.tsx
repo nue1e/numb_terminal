@@ -265,12 +265,17 @@ function TerminalUI() {
   const [currentPage, setCurrentPage] = useState(0);
   const ITEMS_PER_PAGE = 12;
   const [mintQuantity, setMintQuantity] = useState<number>(1);
+  const [hasClaimedFreeLocal, setHasClaimedFreeLocal] = useState<boolean>(false);
   const [isProcessingTx, setIsProcessingTx] = useState(false);
   const [txMessage, setTxMessage] = useState<string | null>(null);
   const [transferAddress, setTransferAddress] = useState<string>('');
 
+  // --- GLOBAL COLLECTION METADATA STATES ---
   const [globalProjectName, setGlobalProjectName] = useState('Numb Polys');
+  const [globalProjectBio, setGlobalProjectBio] = useState('1,111 dynamic, composable 3D constructs on Sui Mainnet powered by Move and Walrus decentralized storage. Every trait is an independent, equippable on-chain object.');
+  const [globalProjectUrl, setGlobalProjectUrl] = useState('https://mainnet.numbpolys.xyz');
   const [globalProjectImage, setGlobalProjectImage] = useState('');
+  const [globalProjectBanner, setGlobalProjectBanner] = useState('');
 
   const displayTxMessage = (msg: string) => {
     setTxMessage(msg);
@@ -283,24 +288,42 @@ function TerminalUI() {
   const currentPhase = regFields?.phase !== undefined ? Number(regFields.phase) : 0; 
   const publicIndex = regFields?.public_minted ? parseInt(regFields.public_minted) : 111;
   
-  // DYNAMIC PRICING AND BATCH MAPPING
+  // DYNAMIC PRICING AND BATCH MAPPING (SUPPORTS FREE MINT TOGGLE IN BATCH 01 OR ANY PHASE)
   const mintPriceMist = regFields?.mint_price || "0"; 
   const mintPriceSui = Number(mintPriceMist) / 1000000000;
+  const isFreeMintActive = currentPhase > 0 && mintPriceSui === 0;
   const activeBatch = ESCALATION_MATRIX.find(b => b.phase === currentPhase) || ESCALATION_MATRIX[0];
 
-  // --- NEW: BATCH LIMIT CALCULATION LOGIC ---
+  // --- BATCH LIMIT CALCULATION LOGIC ---
   const currentBatchLimit = 111 + (currentPhase * 100);
   const remainingInBatch = Math.max(0, currentBatchLimit - publicIndex);
 
-  // Auto-adjust mint quantity if remaining supply dips below their selected number
-  useEffect(() => {
-    if (remainingInBatch > 0 && mintQuantity > remainingInBatch) {
-      setMintQuantity(remainingInBatch);
-    }
-  }, [remainingInBatch, mintQuantity]);
-
   const { data: ownedOperatives, refetch: refetchOperatives } = useSuiClientQuery('getOwnedObjects', { owner: account?.address as string, filter: { StructType: `${ORIGINAL_PACKAGE_ID}::operative::Operative` }, options: { showContent: true } }, { enabled: !!account });
   const { data: looseTraits, refetch: refetchTraits } = useSuiClientQuery('getOwnedObjects', { owner: account?.address as string, filter: { StructType: `${ORIGINAL_PACKAGE_ID}::operative::Trait` }, options: { showContent: true } }, { enabled: !!account && activeView === 'ARMORY' });
+
+  const displayOperatives = ownedOperatives?.data || [];
+
+  // Check local storage claim flag for connected wallet
+  useEffect(() => {
+    if (!account?.address) {
+      setHasClaimedFreeLocal(false);
+      return;
+    }
+    const claimed = localStorage.getItem(`numbpolys_freemint_claimed_${account.address.toLowerCase()}`) === 'true';
+    setHasClaimedFreeLocal(claimed);
+  }, [account?.address, refreshCounter]);
+
+  // Wallet has already claimed if they hold >= 1 Operative on-chain OR claimed a free mint in this browser
+  const hasAlreadyClaimedFreeMint = isFreeMintActive && (displayOperatives.length > 0 || hasClaimedFreeLocal);
+
+  // Force quantity to 1 when Free Mint is active, or clamp to remainingInBatch when Paid
+  useEffect(() => {
+    if (isFreeMintActive && mintQuantity !== 1) {
+      setMintQuantity(1);
+    } else if (!isFreeMintActive && remainingInBatch > 0 && mintQuantity > remainingInBatch) {
+      setMintQuantity(remainingInBatch);
+    }
+  }, [isFreeMintActive, remainingInBatch, mintQuantity]);
 
   useEffect(() => {
     if (ownedOperatives?.data?.length && (!selectedOpId || !ownedOperatives.data.find(op => op.data?.objectId === selectedOpId))) {
@@ -404,7 +427,6 @@ function TerminalUI() {
     setRefreshCounter(prev => prev + 1); 
   };
 
-  const displayOperatives = ownedOperatives?.data || [];
   const activeOpData = displayOperatives.find((op: any) => (op.data?.objectId || op.address) === selectedOpId);
   const activeOpFields = (activeOpData?.data?.content as any)?.fields;
   
@@ -539,7 +561,8 @@ function TerminalUI() {
           
           if (!blobId) throw new Error("Missing Blob ID from Walrus");
           
-          resolve(`https://wsrv.nl/?url=https://aggregator.walrus-testnet.walrus.space/v1/blobs/${blobId}&output=png`);
+          // Append cache-busting timestamp (&v=...) so indexers treat every sync as a fresh URL
+          resolve(`https://wsrv.nl/?url=https://aggregator.walrus-testnet.walrus.space/v1/blobs/${blobId}&output=png&v=${Date.now()}`);
         } catch (error) {
           console.error("Upload Error:", error);
           reject(error);
@@ -576,7 +599,7 @@ function TerminalUI() {
             await refreshTerminalState();
             setIsProcessingTx(false);
           },
-          onError: (err: any) => {
+          onError: () => {
             displayTxMessage(`[ ERROR: SYNC FAILED ]`);
             setIsProcessingTx(false);
           },
@@ -588,15 +611,17 @@ function TerminalUI() {
     }
   };
 
-  const handleUpdateCollectionMetadata = async (mode: 'add' | 'edit') => {
-    if (isProcessingTx || !globalProjectName || !globalProjectImage || !account) return;
+  // --- SMART AUTO-DETECT DISPLAY METADATA UPDATER (PREVENTS ADD/EDIT ABORTS) ---
+  const handleUpdateCollectionMetadata = async (forcedMode?: 'add' | 'edit') => {
+    if (isProcessingTx || !globalProjectName || !account) return;
     setIsProcessingTx(true);
-    displayTxMessage(`[ LOCATING DISPLAY OBJECT ON-CHAIN... ]`);
+    displayTxMessage(`[ LOCATING DISPLAY OBJECT & CHECKING EXISTING KEYS... ]`);
 
     try {
       const objects = await suiClient.getOwnedObjects({
         owner: account.address,
-        filter: { StructType: `0x2::display::Display<${ORIGINAL_PACKAGE_ID}::operative::Operative>` }
+        filter: { StructType: `0x2::display::Display<${ORIGINAL_PACKAGE_ID}::operative::Operative>` },
+        options: { showContent: true }
       });
       
       if (objects.data.length === 0) { 
@@ -605,43 +630,65 @@ function TerminalUI() {
         return; 
       }
       
-      const displayId = objects.data[0].data?.objectId;
+      const displayObj = objects.data[0];
+      const displayId = displayObj.data?.objectId;
       if (!displayId) throw new Error("Invalid Display Object ID");
-      
-      displayTxMessage(`[ INJECTING FULL MARKETPLACE METADATA... PLEASE SIGN ]`);
+
+      // Inspect existing VecMap keys inside Display<Operative> so we never trigger an Add/Edit abort
+      const rawContents =
+        (displayObj.data?.content as any)?.fields?.fields?.fields?.contents ||
+        (displayObj.data?.content as any)?.fields?.fields?.contents ||
+        [];
+
+      const existingKeys = new Set<string>(
+        Array.isArray(rawContents)
+          ? rawContents.map((entry: any) => entry?.fields?.key || entry?.key).filter(Boolean)
+          : Object.keys(rawContents)
+      );
+
+      displayTxMessage(`[ INJECTING FULL ON-CHAIN DISPLAY METADATA... PLEASE SIGN ]`);
 
       const tx = new Transaction();
       const typeArg = `${ORIGINAL_PACKAGE_ID}::operative::Operative`;
 
-      // 1. Route the individual item name
-tx.moveCall({
-  target: `0x2::display::${mode}`,
-  typeArguments: [typeArg],
-  arguments: [tx.object(displayId), tx.pure.string('name'), tx.pure.string('{lore_name}')]
-});
+      // Compose rich item + collection description so Rarity & Mint ID always surface
+      const compositeDescription = globalProjectBio.trim()
+        ? `{lore_name} // Rarity: {rarity_tier} // Construct #{mint_id} — ${globalProjectBio.trim()}`
+        : `{lore_name} // Rarity: {rarity_tier} // Construct #{mint_id}`;
 
-      // 2. Route the individual compiled image
-      tx.moveCall({
-        target: `0x2::display::${mode}`,
-        typeArguments: [typeArg],
-        arguments: [tx.object(displayId), tx.pure.string('image_url'), tx.pure.string('{image_url}')]
-      });
+      const metadataEntries: [string, string][] = [
+        ['name', '{lore_name}'],
+        ['image_url', '{image_url}'],
+        ['thumbnail_url', '{image_url}'],
+        ['description', compositeDescription],
+        ['rarity_tier', '{rarity_tier}'],
+        ['mint_id', '{mint_id}'],
+        ['attributes', '{rarity_tier}'],
+        ['project_name', globalProjectName.trim()],
+        ['project_url', globalProjectUrl.trim() || 'https://mainnet.numbpolys.xyz'],
+        ['creator', 'Numb Polys Syndicate'],
+      ];
 
-      // 3. Set the global collection name (fixes the generic collection title)
-      tx.moveCall({
-        target: `0x2::display::${mode}`,
-        typeArguments: [typeArg],
-        arguments: [tx.object(displayId), tx.pure.string('project_name'), tx.pure.string(globalProjectName)]
-      });
+      if (globalProjectImage.trim()) {
+        metadataEntries.push(['project_image_url', globalProjectImage.trim()]);
+      }
+      if (globalProjectBanner.trim()) {
+        metadataEntries.push(['banner_url', globalProjectBanner.trim()]);
+      }
+
+      for (const [key, value] of metadataEntries) {
+        const callMode = existingKeys.size > 0
+          ? (existingKeys.has(key) ? 'edit' : 'add')
+          : (forcedMode || 'edit');
+
+        tx.moveCall({
+          target: `0x2::display::${callMode}`,
+          typeArguments: [typeArg],
+          arguments: [tx.object(displayId), tx.pure.string(key), tx.pure.string(value)]
+        });
+      }
       
-      // 4. Set the global collection avatar
-      tx.moveCall({
-        target: `0x2::display::${mode}`,
-        typeArguments: [typeArg],
-        arguments: [tx.object(displayId), tx.pure.string('project_image_url'), tx.pure.string(globalProjectImage)]
-      });
-      
-      // 5. Publish the updates to the network
+      // Publish version bump so indexers recrawl
       tx.moveCall({
         target: '0x2::display::update_version',
         typeArguments: [typeArg],
@@ -650,11 +697,11 @@ tx.moveCall({
       
       signAndExecuteTransaction({ transaction: tx }, {
         onSuccess: () => {
-          displayTxMessage(`[ SUCCESS: GLOBAL IDENTITY SYNCED TO BLOCKCHAIN ]`);
+          displayTxMessage(`[ SUCCESS: ON-CHAIN DISPLAY, RARITY & IDENTITY SYNCED ]`);
           setIsProcessingTx(false);
         },
-        onError: (err: any) => {
-          displayTxMessage(`[ ERROR: TRANSACTION FAILED. IF 'ADD' FAILED, TRY 'EDIT'. ]`);
+        onError: () => {
+          displayTxMessage(`[ ERROR: DISPLAY TRANSACTION REJECTED ]`);
           setIsProcessingTx(false);
         }
       });
@@ -691,7 +738,7 @@ tx.moveCall({
           await refreshTerminalState();
           setIsProcessingTx(false);
         },
-        onError: (err: any) => {
+        onError: () => {
           displayTxMessage(`[ ERROR: TRANSACTION FAILED ]`);
           setIsProcessingTx(false);
         },
@@ -722,7 +769,7 @@ tx.moveCall({
           await refreshTerminalState();
           setIsProcessingTx(false);
         },
-        onError: (err: any) => {
+        onError: () => {
           displayTxMessage(`[ ERROR: TRANSACTION FAILED ]`);
           setIsProcessingTx(false);
         },
@@ -754,12 +801,12 @@ tx.moveCall({
             setTransferAddress('');
             setIsProcessingTx(false);
           },
-          onError: (err: any) => {
+          onError: () => {
             displayTxMessage(`[ ERROR: TRANSFER FAILED ]`);
             setIsProcessingTx(false);
           }
         }
-      )
+      );
     } catch (err: any) {
        displayTxMessage(`[ ERROR: ${err.message} ]`);
        setIsProcessingTx(false);
@@ -785,14 +832,19 @@ tx.moveCall({
   };
 
   const mintOperative = async () => {
-    // Failsafes to prevent minting if paused or out of allocation
+    // Failsafes to prevent minting if paused, out of allocation, or already claimed free mint
     if (!account || isProcessingTx || currentPhase === 0 || remainingInBatch <= 0) return;
 
-    // Safety clamp just in case UI somehow bypassed the button disabled states
-    const actualCount = Math.min(mintQuantity, remainingInBatch);
+    if (isFreeMintActive && (displayOperatives.length > 0 || hasClaimedFreeLocal)) {
+      displayTxMessage(`[ ERROR: FREE MINT LIMIT REACHED (MAX 1 CONSTRUCT PER WALLET) ]`);
+      return;
+    }
+
+    // Strictly clamp to 1 construct if Free Mint is active; otherwise clamp to remainingInBatch
+    const actualCount = isFreeMintActive ? 1 : Math.min(mintQuantity, remainingInBatch);
 
     setIsProcessingTx(true);
-    displayTxMessage(`[ PREPARING BATCH MINT (${actualCount})... PLEASE SIGN ]`);
+    displayTxMessage(`[ PREPARING ${isFreeMintActive ? 'FREE MINT (1 MAX)' : `BATCH MINT (${actualCount})`}... PLEASE SIGN ]`);
 
     try {
       const tx = new Transaction();
@@ -842,12 +894,16 @@ tx.moveCall({
         { transaction: tx },
         {
           onSuccess: async () => {
+            if (isFreeMintActive && account?.address) {
+              localStorage.setItem(`numbpolys_freemint_claimed_${account.address.toLowerCase()}`, 'true');
+              setHasClaimedFreeLocal(true);
+            }
             displayTxMessage(`[ SUCCESS: CONSTRUCT(S) DEPLOYED ]`);
             await refreshTerminalState();
             setMintQuantity(1); 
             setIsProcessingTx(false);
           },
-          onError: (err: any) => {
+          onError: () => {
             displayTxMessage(`[ ERROR: TRANSACTION REJECTED ]`);
             setIsProcessingTx(false);
           },
@@ -922,7 +978,7 @@ tx.moveCall({
     padding: '14px', background: account ? '#E5E5E5' : 'rgba(255,255,255,0.03)', color: account ? '#0D0D11' : '#555', border: account ? '1px solid #E5E5E5' : '1px solid rgba(255,255,255,0.1)', cursor: account ? 'pointer' : 'not-allowed', fontFamily: 'inherit', fontWeight: '600', borderRadius: '2px', textTransform: 'uppercase' as const, letterSpacing: '0.1em', transition: 'all 0.3s ease', width: '100%'
   };
 
-  // DYNAMIC BUTTON RENDER BASED ON PHASE & ALLOCATION REMAINING
+  // DYNAMIC BUTTON RENDER BASED ON PHASE, FREE MINT 1-PER-WALLET LIMIT & ALLOCATION REMAINING
   if (account) {
     if (currentPhase === 0) {
       buttonText = 'MINT PAUSED'; 
@@ -938,6 +994,19 @@ tx.moveCall({
       buttonStyle.color = 'orange'; 
       buttonStyle.border = '1px dashed orange'; 
       buttonStyle.cursor = 'not-allowed';
+    } else if (isFreeMintActive && hasAlreadyClaimedFreeMint) {
+      buttonText = '[ FREE MINT CLAIMED (1 MAX PER WALLET) ]';
+      buttonDisabled = true;
+      buttonStyle.background = 'rgba(255, 51, 51, 0.08)';
+      buttonStyle.color = '#ff3333';
+      buttonStyle.border = '1px dashed #ff3333';
+      buttonStyle.cursor = 'not-allowed';
+    } else if (isFreeMintActive) {
+      buttonText = isProcessingTx ? '⚡ PROCESSING...' : `⚡ DEPLOY 1 CONSTRUCT [ FREE MINT // 1 PER WALLET ]`;
+      buttonDisabled = isProcessingTx;
+      buttonStyle.background = 'rgba(0, 255, 128, 0.12)';
+      buttonStyle.color = '#00ff80';
+      buttonStyle.border = '1px solid #00ff80';
     } else {
       const totalCost = mintQuantity * mintPriceSui;
       buttonText = isProcessingTx ? '⚡ PROCESSING...' : `⚡ DEPLOY ${mintQuantity} CONSTRUCT(S) [ ${totalCost.toFixed(2)} SUI ]`; 
@@ -1045,9 +1114,9 @@ tx.moveCall({
                 </div>
 
                 {/* ACTIVE BATCH MATRIX */}
-                <div style={{ background: 'rgba(6,182,212,0.05)', border: '1px solid #06B6D4', padding: '16px', borderRadius: '2px', textAlign: 'center', position: 'relative' }}>
-                  <div style={{ fontSize: '10px', color: '#06B6D4', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '8px', fontWeight: 'bold' }}>
-                    // ACTIVE DEPLOYMENT PHASE: {activeBatch.phase.toString().padStart(2, '0')}
+                <div style={{ background: isFreeMintActive ? 'rgba(0, 255, 128, 0.05)' : 'rgba(6,182,212,0.05)', border: `1px solid ${isFreeMintActive ? '#00ff80' : '#06B6D4'}`, padding: '16px', borderRadius: '2px', textAlign: 'center', position: 'relative' }}>
+                  <div style={{ fontSize: '10px', color: isFreeMintActive ? '#00ff80' : '#06B6D4', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '8px', fontWeight: 'bold' }}>
+                    // ACTIVE DEPLOYMENT PHASE: {activeBatch.phase.toString().padStart(2, '0')} {isFreeMintActive ? '— [ FREE MINT // 1 MAX PER WALLET ]' : `— [ ${mintPriceSui} SUI ]`}
                   </div>
                   <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#E5E5E5', margin: '4px 0', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
                     {activeBatch.name}
@@ -1056,7 +1125,7 @@ tx.moveCall({
                     {activeBatch.lore}
                   </div>
                   
-                  {/* NEW LIVE TRACKER */}
+                  {/* LIVE TRACKER */}
                   {currentPhase > 0 && (
                     <div style={{ fontSize: '11px', color: remainingInBatch > 0 ? '#ff3333' : '#666', marginTop: '14px', fontWeight: 'bold', letterSpacing: '0.1em' }}>
                       // {remainingInBatch} CONSTRUCTS REMAINING IN BATCH //
@@ -1067,18 +1136,20 @@ tx.moveCall({
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                   {account && currentPhase !== 0 && (
                     <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                      <div style={{ color: '#E5E5E5', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
-                        // SELECT DEPLOYMENT QUANTITY
+                      <div style={{ color: isFreeMintActive ? '#00ff80' : '#E5E5E5', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                        {isFreeMintActive ? '// FREE MINT ALLOCATION: STRICTLY 1 CONSTRUCT PER WALLET' : '// SELECT DEPLOYMENT QUANTITY'}
                       </div>
                       <div style={{ display: 'flex', gap: '0.5rem' }}>
                         {[1, 2, 3, 4, 5].map(num => {
-                          const isSelectable = num <= remainingInBatch;
+                          const isSelectable = isFreeMintActive
+                            ? (num === 1 && !hasAlreadyClaimedFreeMint && remainingInBatch >= 1)
+                            : (num <= remainingInBatch);
                           return (
                             <button 
                               key={num}
                               disabled={!isSelectable || isProcessingTx}
-                              onClick={() => setMintQuantity(num)}
-                              style={{ flex: 1, padding: '10px', background: mintQuantity === num ? '#E5E5E5' : 'rgba(255,255,255,0.03)', color: mintQuantity === num ? '#0D0D11' : (isSelectable ? '#E5E5E5' : '#555'), border: mintQuantity === num ? '1px solid #E5E5E5' : '1px solid rgba(255,255,255,0.1)', cursor: (!isSelectable || isProcessingTx) ? 'not-allowed' : 'pointer', fontFamily: 'inherit', fontWeight: 'bold', borderRadius: '2px', transition: 'all 0.2s ease' }}
+                              onClick={() => setMintQuantity(isFreeMintActive ? 1 : num)}
+                              style={{ flex: 1, padding: '10px', background: mintQuantity === num ? '#E5E5E5' : 'rgba(255,255,255,0.03)', color: mintQuantity === num ? '#0D0D11' : (isSelectable ? '#E5E5E5' : '#444'), border: mintQuantity === num ? '1px solid #E5E5E5' : '1px solid rgba(255,255,255,0.1)', opacity: (!isSelectable && isFreeMintActive && num > 1) ? 0.3 : 1, cursor: (!isSelectable || isProcessingTx) ? 'not-allowed' : 'pointer', fontFamily: 'inherit', fontWeight: 'bold', borderRadius: '2px', transition: 'all 0.2s ease' }}
                             >
                               {num}
                             </button>
@@ -1499,13 +1570,12 @@ tx.moveCall({
           <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', width: '100%', alignItems: 'center' }}>
             {account?.address === '0xdb67bfb984df37d73755da48c166689e7d584b17cf6c23a680cb05d90f9653fb' && (
               <div style={{ width: '100%', maxWidth: '800px', background: 'rgba(255,255,255,0.02)', padding: '1.5rem', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '2px' }}>
-                <h3 style={{ margin: '0 0 1rem 0', color: '#06B6D4', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.1em', fontSize: '0.85rem' }}>// GLOBAL CONTRACT IDENTITY (ON-CHAIN DISPLAY)</h3>
+                <h3 style={{ margin: '0 0 1rem 0', color: '#06B6D4', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.1em', fontSize: '0.85rem' }}>// GLOBAL CONTRACT IDENTITY, RARITY & ON-CHAIN DISPLAY</h3>
                 <p style={{ fontSize: '0.75rem', color: '#A3A3A3', marginBottom: '1rem', lineHeight: '1.5' }}>
-                  This controls the root <strong style={{ color: '#E5E5E5' }}>Display</strong> object for your entire collection on Tradeport and SuiScan. 
-                  <br/>Note: Upload your desired Collection Image to Walrus, IPFS, or Arweave and paste the direct URL below.
+                  Automatically syncs <strong style={{ color: '#E5E5E5' }}>Display&lt;Operative&gt;</strong> with your Collection Name, Bio, Website, Logo, Banner, plus native on-chain <strong style={{ color: '#00ff80' }}>rarity_tier</strong> and <strong style={{ color: '#00ff80' }}>mint_id</strong> mappings without Add/Edit conflicts.
                 </p>
                 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
                   <input 
                     type="text" 
                     placeholder="Project Name (e.g., Numb Polys)" 
@@ -1513,27 +1583,41 @@ tx.moveCall({
                     onChange={(e) => setGlobalProjectName(e.target.value)}
                     style={{ width: '100%', background: 'rgba(0,0,0,0.3)', border: '1px solid #444', color: '#E5E5E5', padding: '10px', boxSizing: 'border-box', fontFamily: 'inherit', fontSize: '12px', borderRadius: '2px' }}
                   />
+                  <textarea 
+                    placeholder="Collection Bio / Description" 
+                    value={globalProjectBio}
+                    onChange={(e) => setGlobalProjectBio(e.target.value)}
+                    rows={2}
+                    style={{ width: '100%', background: 'rgba(0,0,0,0.3)', border: '1px solid #444', color: '#E5E5E5', padding: '10px', boxSizing: 'border-box', fontFamily: 'inherit', fontSize: '12px', borderRadius: '2px', resize: 'vertical' }}
+                  />
                   <input 
                     type="text" 
-                    placeholder="Collection Avatar URL (https://...)" 
+                    placeholder="Project Website URL (https://mainnet.numbpolys.xyz)" 
+                    value={globalProjectUrl}
+                    onChange={(e) => setGlobalProjectUrl(e.target.value)}
+                    style={{ width: '100%', background: 'rgba(0,0,0,0.3)', border: '1px solid #444', color: '#E5E5E5', padding: '10px', boxSizing: 'border-box', fontFamily: 'inherit', fontSize: '12px', borderRadius: '2px' }}
+                  />
+                  <input 
+                    type="text" 
+                    placeholder="Collection Avatar / Logo URL (https://...)" 
                     value={globalProjectImage}
                     onChange={(e) => setGlobalProjectImage(e.target.value)}
                     style={{ width: '100%', background: 'rgba(0,0,0,0.3)', border: '1px solid #444', color: '#E5E5E5', padding: '10px', boxSizing: 'border-box', fontFamily: 'inherit', fontSize: '12px', borderRadius: '2px' }}
                   />
+                  <input 
+                    type="text" 
+                    placeholder="Collection Banner URL (Optional - https://...)" 
+                    value={globalProjectBanner}
+                    onChange={(e) => setGlobalProjectBanner(e.target.value)}
+                    style={{ width: '100%', background: 'rgba(0,0,0,0.3)', border: '1px solid #444', color: '#E5E5E5', padding: '10px', boxSizing: 'border-box', fontFamily: 'inherit', fontSize: '12px', borderRadius: '2px' }}
+                  />
                   <div style={{ display: 'flex', gap: '1rem' }}>
                     <button 
-                      onClick={() => handleUpdateCollectionMetadata('add')}
-                      disabled={isProcessingTx || !globalProjectName || !globalProjectImage}
-                      style={{ flex: 1, background: 'rgba(0, 255, 128, 0.1)', color: '#00ff80', border: '1px solid rgba(0, 255, 128, 0.3)', padding: '10px', cursor: (isProcessingTx || !globalProjectName || !globalProjectImage) ? 'not-allowed' : 'pointer', fontFamily: 'inherit', fontWeight: 'bold', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', borderRadius: '2px', transition: 'all 0.3s ease' }}
+                      onClick={() => handleUpdateCollectionMetadata()}
+                      disabled={isProcessingTx || !globalProjectName}
+                      style={{ flex: 1, background: 'rgba(0, 255, 128, 0.12)', color: '#00ff80', border: '1px solid rgba(0, 255, 128, 0.4)', padding: '12px', cursor: (isProcessingTx || !globalProjectName) ? 'not-allowed' : 'pointer', fontFamily: 'inherit', fontWeight: 'bold', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', borderRadius: '2px', transition: 'all 0.3s ease' }}
                     >
-                      {isProcessingTx ? '[ PROCESSING... ]' : '[ 1. SET METADATA (ADD) ]'}
-                    </button>
-                    <button 
-                      onClick={() => handleUpdateCollectionMetadata('edit')}
-                      disabled={isProcessingTx || !globalProjectName || !globalProjectImage}
-                      style={{ flex: 1, background: 'rgba(255, 165, 0, 0.1)', color: 'orange', border: '1px solid rgba(255, 165, 0, 0.3)', padding: '10px', cursor: (isProcessingTx || !globalProjectName || !globalProjectImage) ? 'not-allowed' : 'pointer', fontFamily: 'inherit', fontWeight: 'bold', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', borderRadius: '2px', transition: 'all 0.3s ease' }}
-                    >
-                      {isProcessingTx ? '[ PROCESSING... ]' : '[ 2. OVERWRITE METADATA (EDIT) ]'}
+                      {isProcessingTx ? '[ PROCESSING... ]' : '[ ⚡ AUTO-SYNC ALL DISPLAY METADATA, RARITY & MINT ID ]'}
                     </button>
                   </div>
                 </div>

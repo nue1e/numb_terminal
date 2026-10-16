@@ -11,7 +11,7 @@ import registryData from './registry.json';
 const ADMIN_ADDRESS = '0xdb67bfb984df37d73755da48c166689e7d584b17cf6c23a680cb05d90f9653fb';
 
 const ESCALATION_MATRIX = [
-  { phase: 1, name: "Batch 01 // The Vanguard", price: 3, mist: "3000000000" },
+  { phase: 1, name: "Batch 01 // The Vanguard", price: 3.33, mist: "3330000000" },
   { phase: 2, name: "Batch 02 // The Recon Protocol", price: 4, mist: "4000000000" },
   { phase: 3, name: "Batch 03 // The Iron Grid", price: 5, mist: "5000000000" },
   { phase: 4, name: "Batch 04 // The Static Runners", price: 6, mist: "6000000000" },
@@ -60,6 +60,8 @@ export function AdminDashboard() {
   const fields = (registryObj?.data?.content as any)?.fields;
   const adminMinted = fields?.admin_minted !== undefined ? parseInt(fields.admin_minted) : null;
   const currentPhase = fields?.phase !== undefined ? Number(fields.phase) : null;
+  const currentPriceMist = fields?.mint_price !== undefined ? String(fields.mint_price) : "0";
+  const currentPriceSui = Number(currentPriceMist) / 1_000_000_000;
   
   const rawBalance = fields?.balance;
   const treasurySui = (rawBalance?.fields?.value ? Number(rawBalance.fields.value) : Number(rawBalance || 0)) / 1_000_000_000;
@@ -144,7 +146,8 @@ export function AdminDashboard() {
 
   // --- 3. DYNAMIC ECONOMICS (ROYALTIES & CUSTOM PRICE) ---
   const handleUpdateEconomics = () => {
-    const pubMist = Math.floor(parseFloat(pubPriceSui || "0") * 1_000_000_000);
+    const hasCustomPrice = pubPriceSui.trim() !== '';
+    const pubMist = hasCustomPrice ? Math.floor(parseFloat(pubPriceSui) * 1_000_000_000) : -1;
     const recipient = treasuryWallet || account?.address;
 
     if (!recipient) return displayMessage(`[ ERROR: NO RECIPIENT WALLET FOUND ]`);
@@ -154,8 +157,8 @@ export function AdminDashboard() {
 
     const tx = new Transaction();
     
-    // Only update price if a custom value is typed
-    if (pubMist > 0) {
+    // Allows setting 0 or any custom SUI price if typed into the input
+    if (hasCustomPrice && pubMist >= 0) {
       tx.moveCall({
         target: `${LATEST_PACKAGE_ID}::operative::update_public_price`,
         arguments: [tx.object(ADMIN_CAP_ID), tx.object(REGISTRY_ID), tx.pure.u64(pubMist)],
@@ -317,6 +320,12 @@ export function AdminDashboard() {
           </span>
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+          <span style={{ color: '#A3A3A3' }}>Active Mint Price:</span>
+          <span style={{ fontWeight: 'bold', color: currentPriceSui === 0 ? '#00ff80' : '#06B6D4' }}>
+            {currentPriceSui === 0 ? 'FREE MINT (0 SUI)' : `${currentPriceSui} SUI`}
+          </span>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
           <span style={{ color: '#A3A3A3' }}>Staking Protocol:</span>
           <span style={{ color: stakingActive ? '#00ff00' : '#ff3333' }}>{stakingActive ? 'ONLINE' : 'OFFLINE'}</span>
         </div>
@@ -339,16 +348,39 @@ export function AdminDashboard() {
           [ EMERGENCY MINT PAUSE (PHASE 0) ]
         </button>
 
+        {/* DEDICATED BATCH 01 FREE MINT vs PAID (3.33 SUI) TOGGLE */}
+        <div style={{ background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(6, 182, 212, 0.3)', padding: '12px', marginBottom: '1rem', borderRadius: '2px' }}>
+          <div style={{ fontSize: '0.75rem', color: '#06B6D4', fontWeight: 'bold', marginBottom: '8px', letterSpacing: '0.05em' }}>
+            // BATCH 01 (THE VANGUARD) — LIVE PRICE TOGGLE (KEEPS BATCH 01 NAME & SUPPLY CONTINUOUS)
+          </div>
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <button
+              onClick={() => handleUpdateBatch(1, "0", "Batch 01 // The Vanguard [FREE MINT]")}
+              disabled={isProcessing}
+              style={{ flex: 1, padding: '10px', background: (currentPhase === 1 && currentPriceSui === 0) ? 'rgba(0, 255, 128, 0.2)' : 'rgba(255,255,255,0.03)', color: (currentPhase === 1 && currentPriceSui === 0) ? '#00ff80' : '#E5E5E5', border: (currentPhase === 1 && currentPriceSui === 0) ? '1px solid #00ff80' : '1px solid rgba(255,255,255,0.15)', cursor: isProcessing ? 'not-allowed' : 'pointer', fontFamily: 'inherit', fontSize: '0.75rem', fontWeight: 'bold' }}
+            >
+              [ BATCH 01: FREE MINT (0 SUI) ]
+            </button>
+            <button
+              onClick={() => handleUpdateBatch(1, "3330000000", "Batch 01 // The Vanguard [3.33 SUI]")}
+              disabled={isProcessing}
+              style={{ flex: 1, padding: '10px', background: (currentPhase === 1 && currentPriceMist === "3330000000") ? 'rgba(6, 182, 212, 0.2)' : 'rgba(255,255,255,0.03)', color: (currentPhase === 1 && currentPriceMist === "3330000000") ? '#06B6D4' : '#E5E5E5', border: (currentPhase === 1 && currentPriceMist === "3330000000") ? '1px solid #06B6D4' : '1px solid rgba(255,255,255,0.15)', cursor: isProcessing ? 'not-allowed' : 'pointer', fontFamily: 'inherit', fontSize: '0.75rem', fontWeight: 'bold' }}
+            >
+              [ BATCH 01: PAID (3.33 SUI) ]
+            </button>
+          </div>
+        </div>
+
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.5rem' }}>
           {ESCALATION_MATRIX.map((batch) => (
             <button 
               key={batch.phase}
               onClick={() => handleUpdateBatch(batch.phase, batch.mist, batch.name)}
               disabled={isProcessing}
-              style={{ padding: '12px', background: currentPhase === batch.phase ? 'rgba(6,182,212,0.2)' : 'rgba(255,255,255,0.02)', color: currentPhase === batch.phase ? '#06B6D4' : '#E5E5E5', border: currentPhase === batch.phase ? '1px solid #06B6D4' : '1px solid rgba(255,255,255,0.1)', cursor: isProcessing ? 'not-allowed' : 'pointer', fontFamily: 'inherit', fontSize: '0.75rem', textAlign: 'left', borderRadius: '2px', display: 'flex', flexDirection: 'column', gap: '4px' }}
+              style={{ padding: '12px', background: (currentPhase === batch.phase && currentPriceMist === batch.mist) ? 'rgba(6,182,212,0.2)' : 'rgba(255,255,255,0.02)', color: (currentPhase === batch.phase && currentPriceMist === batch.mist) ? '#06B6D4' : '#E5E5E5', border: (currentPhase === batch.phase && currentPriceMist === batch.mist) ? '1px solid #06B6D4' : '1px solid rgba(255,255,255,0.1)', cursor: isProcessing ? 'not-allowed' : 'pointer', fontFamily: 'inherit', fontSize: '0.75rem', textAlign: 'left', borderRadius: '2px', display: 'flex', flexDirection: 'column', gap: '4px' }}
             >
               <span style={{ fontWeight: 'bold' }}>{batch.name.split(' // ')[0]}</span>
-              <span style={{ fontSize: '0.7rem', color: currentPhase === batch.phase ? '#E5E5E5' : '#888' }}>Set Price: {batch.price} SUI</span>
+              <span style={{ fontSize: '0.7rem', color: (currentPhase === batch.phase && currentPriceMist === batch.mist) ? '#E5E5E5' : '#888' }}>Set Price: {batch.price} SUI</span>
             </button>
           ))}
         </div>
