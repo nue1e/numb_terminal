@@ -1,14 +1,13 @@
-import React, { useState } from 'react';
+import  { useState, useEffect, useCallback } from 'react';
 import {
   useCurrentAccount,
   useSignAndExecuteTransaction,
-  useSuiClientQuery
 } from '@mysten/dapp-kit';
 import { Transaction } from '@mysten/sui/transactions';
 import { LATEST_PACKAGE_ID, REGISTRY_ID, ADMIN_CAP_ID, V3_STATE_ID } from './config';
 import registryData from './registry.json';
 
-const ADMIN_ADDRESS = '0xdb67bfb984df37d73755da48c166689e7d584b17cf6c23a680cb05d90f9653fb';
+
 
 const ESCALATION_MATRIX = [
   { phase: 1, name: "Batch 01 // The Vanguard", price: 3.33, mist: "3330000000" },
@@ -23,12 +22,59 @@ const ESCALATION_MATRIX = [
   { phase: 10, name: "Batch 10 // The Mythic Unknown", price: 20, mist: "20000000000" }
 ];
 
+// --- PROXY-FIRST JSON-RPC ENGINE FOR OVERSEER ---
+const RPC_ENDPOINTS = [
+  '/sui-rpc',
+  'https://sui-rpc.publicnode.com',
+  'https://mainnet.suiet.app',
+  'https://rpc.ankr.com/sui'
+];
+
+async function rawRpcCall(method: string, params: any[]): Promise<any> {
+  let lastError: any;
+  for (const url of RPC_ENDPOINTS) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 6000);
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+        signal: controller.signal
+      });
+      clearTimeout(timeout);
+
+      if (!response.ok) continue;
+      const json = await response.json();
+      if (json.error) {
+        lastError = new Error(json.error.message || JSON.stringify(json.error));
+        continue;
+      }
+      if (json.result !== undefined) return json.result;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError || new Error(`RPC failed for ${method}`);
+}
+
+const suiRpc = {
+  getObject: (id: string): Promise<any> =>
+    rawRpcCall('sui_getObject', [id, { showContent: true, showDisplay: true, showType: true }])
+};
+
 export function AdminDashboard() {
   const account = useCurrentAccount();
   const { mutate: signAndExecuteTransaction } = useSignAndExecuteTransaction();
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [txMessage, setTxMessage] = useState<string | null>(null);
+
+  // Overseer Live State
+  const [registryFields, setRegistryFields] = useState<any>(null);
+  const [v3Fields, setV3Fields] = useState<any>(null);
+  const [isSyncing, setIsSyncing] = useState<boolean>(true);
   
   // Economics State
   const [pubPriceSui, setPubPriceSui] = useState<string>('');
@@ -48,25 +94,43 @@ export function AdminDashboard() {
     setTimeout(() => setTxMessage(null), 12000);
   };
 
-  const { data: registryObj, refetch: refetchRegistry } = useSuiClientQuery(
-    'getObject', { id: REGISTRY_ID, options: { showContent: true } }
-  );
+  // --- FETCH OVERSEER DATA THROUGH PROXY ---
+  const fetchOverseerData = useCallback(async () => {
+    setIsSyncing(true);
+    try {
+      if (REGISTRY_ID) {
+        const regObj: any = await suiRpc.getObject(REGISTRY_ID);
+        if (regObj?.data?.content?.fields) {
+          setRegistryFields(regObj.data.content.fields);
+        }
+      }
+      if (V3_STATE_ID) {
+        const v3Obj: any = await suiRpc.getObject(V3_STATE_ID);
+        if (v3Obj?.data?.content?.fields) {
+          setV3Fields(v3Obj.data.content.fields);
+        }
+      }
+    } catch (err) {
+      console.error("Overseer sync error:", err);
+    } finally {
+      setIsSyncing(false);
+    }
+  }, []);
 
-  const { data: v3StateObj, refetch: refetchV3 } = useSuiClientQuery(
-    'getObject', { id: V3_STATE_ID, options: { showContent: true } },
-    { enabled: !!V3_STATE_ID }
-  );
+  useEffect(() => {
+    fetchOverseerData();
+    const interval = setInterval(fetchOverseerData, 15000);
+    return () => clearInterval(interval);
+  }, [fetchOverseerData]);
 
-  const fields = (registryObj?.data?.content as any)?.fields;
-  const adminMinted = fields?.admin_minted !== undefined ? parseInt(fields.admin_minted) : null;
-  const currentPhase = fields?.phase !== undefined ? Number(fields.phase) : null;
-  const currentPriceMist = fields?.mint_price !== undefined ? String(fields.mint_price) : "0";
+  const adminMinted = registryFields?.admin_minted !== undefined ? parseInt(registryFields.admin_minted) : (isSyncing ? null : 0);
+  const currentPhase = registryFields?.phase !== undefined ? Number(registryFields.phase) : (isSyncing ? null : 0);
+  const currentPriceMist = registryFields?.mint_price !== undefined ? String(registryFields.mint_price) : "0";
   const currentPriceSui = Number(currentPriceMist) / 1_000_000_000;
   
-  const rawBalance = fields?.balance;
+  const rawBalance = registryFields?.balance;
   const treasurySui = (rawBalance?.fields?.value ? Number(rawBalance.fields.value) : Number(rawBalance || 0)) / 1_000_000_000;
 
-  const v3Fields = (v3StateObj?.data?.content as any)?.fields;
   const stakingActive = v3Fields?.staking_active;
 
   // --- 1. SYSTEM INITIALIZATION ---
@@ -78,10 +142,11 @@ export function AdminDashboard() {
       target: `${LATEST_PACKAGE_ID}::operative::initialize_v3`,
       arguments: [tx.object(ADMIN_CAP_ID)],
     });
-    signAndExecuteTransaction({ transaction: tx }, {
+    signAndExecuteTransaction({ transaction: tx as any }, {
       onSuccess: () => {
         displayMessage(`[ SUCCESS: V3 STATE CREATED. CHECK EXPLORER FOR NEW OBJECT ID ]`);
         setIsProcessing(false);
+        fetchOverseerData();
       },
       onError: (err) => {
         console.error(err);
@@ -108,10 +173,10 @@ export function AdminDashboard() {
       arguments: [tx.object(ADMIN_CAP_ID), tx.object(REGISTRY_ID), tx.pure.u64(priceMist)],
     });
 
-    signAndExecuteTransaction({ transaction: tx }, {
+    signAndExecuteTransaction({ transaction: tx as any }, {
       onSuccess: () => {
         displayMessage(`[ SUCCESS: SYSTEM SHIFTED TO ${batchName.toUpperCase()} ]`);
-        refetchRegistry();
+        fetchOverseerData();
         setIsProcessing(false);
       },
       onError: (err) => { 
@@ -131,10 +196,10 @@ export function AdminDashboard() {
       arguments: [tx.object(ADMIN_CAP_ID), tx.object(REGISTRY_ID), tx.pure.u8(0)],
     });
 
-    signAndExecuteTransaction({ transaction: tx }, {
+    signAndExecuteTransaction({ transaction: tx as any }, {
       onSuccess: () => {
         displayMessage(`[ SUCCESS: MINTING PAUSED ]`);
-        refetchRegistry();
+        fetchOverseerData();
         setIsProcessing(false);
       },
       onError: (err) => { 
@@ -157,7 +222,6 @@ export function AdminDashboard() {
 
     const tx = new Transaction();
     
-    // Allows setting 0 or any custom SUI price if typed into the input
     if (hasCustomPrice && pubMist >= 0) {
       tx.moveCall({
         target: `${LATEST_PACKAGE_ID}::operative::update_public_price`,
@@ -169,16 +233,17 @@ export function AdminDashboard() {
       target: `${LATEST_PACKAGE_ID}::operative::admin_update_v3_state`,
       arguments: [
         tx.object(ADMIN_CAP_ID), tx.object(V3_STATE_ID),
-        tx.pure.u64(0), tx.pure.u64(0), // Removed GTD/FCFS parameters to keep contract format unbroken
+        tx.pure.u64(0), tx.pure.u64(0),
         tx.pure.u64(Number(royaltyBps)), tx.pure.u8(Number(royaltyMode)),
         tx.pure.address(recipient)
       ],
     });
 
-    signAndExecuteTransaction({ transaction: tx }, {
+    signAndExecuteTransaction({ transaction: tx as any }, {
       onSuccess: () => {
         displayMessage(`[ SUCCESS: ECONOMICS & ROYALTIES SYNCED ]`);
-        refetchRegistry(); refetchV3(); setIsProcessing(false);
+        fetchOverseerData(); 
+        setIsProcessing(false);
       },
       onError: (err) => { 
         console.error(err); 
@@ -188,7 +253,7 @@ export function AdminDashboard() {
     });
   };
 
-  // --- 4. GOD MODE OVERRIDES (STREAMLINED) ---
+  // --- 4. GOD MODE OVERRIDES ---
   const handleGodMode = async () => {
     const cleanTargetId = targetId.trim();
     const cleanCategory = traitCategory.trim();
@@ -217,10 +282,11 @@ export function AdminDashboard() {
         });
       }
 
-      signAndExecuteTransaction({ transaction: tx }, {
+      signAndExecuteTransaction({ transaction: tx as any }, {
         onSuccess: () => {
           displayMessage(`[ SUCCESS: METADATA PERMANENTLY REWRITTEN ]`);
-          setNewUrl(''); setIsProcessing(false);
+          setNewUrl(''); 
+          setIsProcessing(false);
         },
         onError: (err) => { 
           console.error(err); 
@@ -241,8 +307,8 @@ export function AdminDashboard() {
     setIsProcessing(true);
     const tx = new Transaction();
     tx.moveCall({ target: `${LATEST_PACKAGE_ID}::operative::withdraw_funds`, arguments: [tx.object(ADMIN_CAP_ID), tx.object(REGISTRY_ID)] });
-    signAndExecuteTransaction({ transaction: tx }, { 
-      onSuccess: () => { displayMessage(`[ TREASURY WITHDRAWN ]`); refetchRegistry(); setIsProcessing(false); }, 
+    signAndExecuteTransaction({ transaction: tx as any }, { 
+      onSuccess: () => { displayMessage(`[ TREASURY WITHDRAWN ]`); fetchOverseerData(); setIsProcessing(false); }, 
       onError: (err) => { displayMessage(`[ ERROR: ${err.message} ]`); setIsProcessing(false); } 
     });
   };
@@ -271,8 +337,8 @@ export function AdminDashboard() {
         ],
       });
     }
-    signAndExecuteTransaction({ transaction: tx }, { 
-      onSuccess: () => { displayMessage(`[ VAULT CLAIMED ]`); refetchRegistry(); setIsProcessing(false); }, 
+    signAndExecuteTransaction({ transaction: tx as any }, { 
+      onSuccess: () => { displayMessage(`[ VAULT CLAIMED ]`); fetchOverseerData(); setIsProcessing(false); }, 
       onError: (err) => { displayMessage(`[ ERROR: ${err.message} ]`); setIsProcessing(false); } 
     });
   };
@@ -284,8 +350,8 @@ export function AdminDashboard() {
       target: `${LATEST_PACKAGE_ID}::operative::toggle_staking`,
       arguments: [tx.object(ADMIN_CAP_ID), tx.object(V3_STATE_ID), tx.pure.bool(!stakingActive)],
     });
-    signAndExecuteTransaction({ transaction: tx }, { 
-      onSuccess: () => { displayMessage(`[ STAKING TOGGLED ]`); refetchV3(); setIsProcessing(false); }, 
+    signAndExecuteTransaction({ transaction: tx as any }, { 
+      onSuccess: () => { displayMessage(`[ STAKING TOGGLED ]`); fetchOverseerData(); setIsProcessing(false); }, 
       onError: (err) => { displayMessage(`[ ERROR: ${err.message} ]`); setIsProcessing(false); } 
     });
   };
@@ -304,7 +370,9 @@ export function AdminDashboard() {
       <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.1)', padding: '1.5rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
           <h3 style={{ margin: 0, color: '#06B6D4' }}>// OMNI-STATE STATUS</h3>
-          <button onClick={() => {refetchRegistry(); refetchV3();}} style={{ background: 'transparent', color: '#06B6D4', border: '1px solid #06B6D4', padding: '4px 12px', fontSize: '10px', cursor: 'pointer', fontFamily: 'inherit' }}>[ RE-SYNC ]</button>
+          <button onClick={() => fetchOverseerData()} disabled={isSyncing} style={{ background: 'transparent', color: '#06B6D4', border: '1px solid #06B6D4', padding: '4px 12px', fontSize: '10px', cursor: 'pointer', fontFamily: 'inherit' }}>
+            {isSyncing ? '[ SYNCING... ]' : '[ RE-SYNC ]'}
+          </button>
         </div>
         
         {!V3_STATE_ID && (
@@ -331,7 +399,7 @@ export function AdminDashboard() {
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
           <span style={{ color: '#A3A3A3' }}>Creator Vault / Treasury:</span>
-          <span style={{ color: '#E5E5E5' }}>{adminMinted} / 111 | {treasurySui} SUI</span>
+          <span style={{ color: '#E5E5E5' }}>{adminMinted ?? '...'} / 111 | {treasurySui} SUI</span>
         </div>
       </div>
 
@@ -431,7 +499,7 @@ export function AdminDashboard() {
         <h3 style={{ margin: '0 0 1rem 0', color: '#A3A3A3' }}>// ADMIN RESERVE MINTS</h3>
         <div style={{ display: 'flex', gap: '0.5rem' }}>
           {[1, 5, 10, 25].map(num => (
-            <button key={num} onClick={() => handleBatchMintReserve(num)} disabled={isProcessing} style={{ flex: 1, padding: '8px', background: 'transparent', color: '#E5E5E5', border: '1px solid #444', cursor: 'pointer' }}>{num}</button>
+            <button key={num} onClick={() => handleBatchMintReserve(num)} disabled={isProcessing} style={{ flex: '1', padding: '8px', background: 'transparent', color: '#E5E5E5', border: '1px solid #444', cursor: 'pointer' }}>{num}</button>
           ))}
         </div>
       </div>

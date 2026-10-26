@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/sui-rpc",
+      "destination": "https://fullnode.mainnet.sui.io/"
+    }
+  ]
+}

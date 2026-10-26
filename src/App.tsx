@@ -4,7 +4,6 @@ import {
   useCurrentAccount, 
   useSignAndExecuteTransaction,
   useSuiClient,
-  useSuiClientQuery,
   SuiClientProvider, 
   WalletProvider
 } from '@mysten/dapp-kit';
@@ -20,19 +19,78 @@ import '@mysten/dapp-kit/dist/index.css';
 
 const ACTIVE_PACKAGE = "0x4b254bb4146094f1214106f7be8b5cfffd59e5a0f2a89f22ae3eef024d2fda0e";
 
+// --- PROXY-FIRST + MULTI-NODE JSON-RPC ENGINE ---
+const RPC_ENDPOINTS = [
+  '/sui-rpc', // 1. Local Vite / Vercel Server Proxy (Zero CORS!)
+  'https://sui-rpc.publicnode.com',
+  'https://mainnet.suiet.app',
+  'https://rpc.ankr.com/sui',
+  'https://1rpc.io/sui'
+];
+
+async function rawRpcCall(method: string, params: any[]): Promise<any> {
+  let lastError: any;
+  for (const url of RPC_ENDPOINTS) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 6000);
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method,
+          params
+        }),
+        signal: controller.signal
+      });
+      clearTimeout(timeout);
+
+      if (!response.ok) continue;
+      const json = await response.json();
+      if (json.error) {
+        lastError = new Error(json.error.message || JSON.stringify(json.error));
+        continue;
+      }
+      if (json.result !== undefined) return json.result;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError || new Error(`All RPC endpoints failed for ${method}`);
+}
+
+const suiRpc = {
+  getObject: (id: string): Promise<any> =>
+    rawRpcCall('sui_getObject', [id, { showContent: true, showDisplay: true, showType: true }]),
+  multiGetObjects: (ids: string[]): Promise<any[]> =>
+    rawRpcCall('sui_multiGetObjects', [ids, { showContent: true, showDisplay: true, showType: true }]),
+  getDynamicFields: (parentId: string): Promise<{ data: any[] }> =>
+    rawRpcCall('suix_getDynamicFields', [parentId, null, 50]),
+  getOwnedObjects: (owner: string, structType: string): Promise<{ data: any[] }> =>
+    rawRpcCall('suix_getOwnedObjects', [
+      owner,
+      { filter: { StructType: structType }, options: { showContent: true, showDisplay: true, showType: true } },
+      null,
+      50
+    ])
+};
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       refetchOnWindowFocus: false,
-      staleTime: 30000, 
-      retry: 4,
-      retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 10000),
+      staleTime: 10000, 
+      retry: 2,
     },
   },
 });
 
+// Route @mysten/dapp-kit hooks (including AdminDashboard.tsx!) through our CORS-free proxy
 const networks = {
-  mainnet: { url: 'https://sui-mainnet-endpoint.blockvision.org' }
+  mainnet: { url: typeof window !== 'undefined' ? `${window.location.origin}/sui-rpc` : 'https://sui-rpc.publicnode.com' }
 } as any;
 
 const normalizeCategory = (rawCat: string) => {
@@ -76,7 +134,7 @@ const ESCALATION_MATRIX = [
 ];
 
 // --- MEMOIZED ROLLING THUMBNAIL ---
-const ConstructThumbnail = React.memo(({ op, index, isSelected, activeGear, onClick, suiClient, isProcessingTx, refreshCounter, retryRpc }: any) => {
+const ConstructThumbnail = React.memo(({ op, index, isSelected, activeGear, onClick, isProcessingTx, refreshCounter }: any) => {
   const id = op.data?.objectId || op.address;
   const fields = (op.data?.content as any)?.fields;
   
@@ -129,19 +187,16 @@ const ConstructThumbnail = React.memo(({ op, index, isSelected, activeGear, onCl
       }
       
       try {
-        const delay = index < 3 ? (index * 50) : (150 + Math.random() * 300);
+        const delay = index < 3 ? (index * 50) : (150 + Math.random() * 250);
         await new Promise(resolve => setTimeout(resolve, delay));
         if (!active) return;
 
-        const dynamicFields = await retryRpc(() => suiClient.getDynamicFields({ parentId: id }));
+        const dynamicFields: any = await suiRpc.getDynamicFields(id);
         if (!active) return;
         
-        if (dynamicFields.data.length > 0) {
+        if (dynamicFields?.data?.length > 0) {
           const traitIds = dynamicFields.data.map((field: any) => field.objectId);
-          const childObjects = await retryRpc(() => suiClient.multiGetObjects({
-            ids: traitIds,
-            options: { showContent: true }
-          }));
+          const childObjects: any[] = await suiRpc.multiGetObjects(traitIds);
           if (!active) return;
           
           const newGearMap: Record<string, string> = {};
@@ -171,7 +226,7 @@ const ConstructThumbnail = React.memo(({ op, index, isSelected, activeGear, onCl
     };
     fetchGear();
     return () => { active = false; };
-  }, [id, suiClient, refreshCounter, retryRpc, index]);
+  }, [id, refreshCounter, index]);
 
   const activeUrls = [
     gearMap['background'],
@@ -270,6 +325,11 @@ function TerminalUI() {
   const [txMessage, setTxMessage] = useState<string | null>(null);
   const [transferAddress, setTransferAddress] = useState<string>('');
 
+  // --- DIRECT FAILOVER ON-CHAIN STATE ---
+  const [regFields, setRegFields] = useState<any>(null);
+  const [displayOperatives, setDisplayOperatives] = useState<any[]>([]);
+  const [looseTraitsList, setLooseTraitsList] = useState<any[]>([]);
+
   // --- GLOBAL COLLECTION METADATA STATES ---
   const [globalProjectName, setGlobalProjectName] = useState('Numb Polys');
   const [globalProjectBio, setGlobalProjectBio] = useState('1,111 dynamic, composable 3D constructs on Sui Mainnet powered by Move and Walrus decentralized storage. Every trait is an independent, equippable on-chain object.');
@@ -282,14 +342,106 @@ function TerminalUI() {
     setTimeout(() => setTxMessage(null), 6000);
   };
 
-  const { data: registryObj, refetch: refetchRegistry } = useSuiClientQuery('getObject', { id: REGISTRY_ID, options: { showContent: true } });
+  // --- BULLETPROOF REGISTRY & V3 STATE FETCHER ---
+  const refetchRegistry = useCallback(async () => {
+    try {
+      const targetIds = [REGISTRY_ID, V3_STATE_ID].filter(
+        id => typeof id === 'string' && id.trim().startsWith('0x') && id.trim().length > 10
+      );
 
-  const regFields = (registryObj?.data?.content as any)?.fields;
-  const currentPhase = regFields?.phase !== undefined ? Number(regFields.phase) : 0; 
-  const publicIndex = regFields?.public_minted ? parseInt(regFields.public_minted) : 111;
+      let mergedFields: any = {};
+      for (const id of targetIds) {
+        try {
+          const obj: any = await suiRpc.getObject(id.trim());
+          const content = obj?.data?.content as any;
+          if (content?.fields) {
+            mergedFields = { ...mergedFields, ...content.fields };
+          } else if (obj?.error) {
+            console.warn(`Object ${id} returned error:`, obj.error);
+          }
+        } catch (innerErr) {
+          console.warn(`Failed individual fetch for ${id}:`, innerErr);
+        }
+      }
+
+      if (Object.keys(mergedFields).length > 0) {
+        setRegFields(mergedFields);
+      } else {
+        displayTxMessage(`[ RPC DIAGNOSTIC: NO FIELDS FOUND ON REGISTRY ${REGISTRY_ID?.slice(0, 8)} ]`);
+      }
+    } catch (err: any) {
+      console.error("Failed to fetch Registry/State:", err);
+      displayTxMessage(`[ RPC ERROR: ${err?.message || 'NETWORK BLOCKED'} ]`);
+    }
+  }, []);
+
+  // --- BULLETPROOF OWNED OPERATIVES FETCHER ---
+  const refetchOperatives = useCallback(async () => {
+    if (!account?.address) {
+      setDisplayOperatives([]);
+      return;
+    }
+    try {
+      const packageTargets = Array.from(new Set([ORIGINAL_PACKAGE_ID, ACTIVE_PACKAGE].filter(Boolean)));
+      let allOps: any[] = [];
+
+      for (const pkg of packageTargets) {
+        const res: any = await suiRpc.getOwnedObjects(account.address, `${pkg}::operative::Operative`);
+        if (res?.data?.length) {
+          allOps = [...allOps, ...res.data];
+        }
+      }
+
+      const uniqueOps = Array.from(new Map(allOps.map(item => [item.data?.objectId, item])).values());
+      setDisplayOperatives(uniqueOps);
+    } catch (err) {
+      console.error("Failed to fetch owned Operatives:", err);
+    }
+  }, [account?.address]);
+
+  // --- BULLETPROOF LOOSE TRAITS FETCHER ---
+  const refetchTraits = useCallback(async () => {
+    if (!account?.address) {
+      setLooseTraitsList([]);
+      return;
+    }
+    try {
+      const packageTargets = Array.from(new Set([ORIGINAL_PACKAGE_ID, ACTIVE_PACKAGE].filter(Boolean)));
+      let allTraits: any[] = [];
+
+      for (const pkg of packageTargets) {
+        const res: any = await suiRpc.getOwnedObjects(account.address, `${pkg}::operative::Trait`);
+        if (res?.data?.length) {
+          allTraits = [...allTraits, ...res.data];
+        }
+      }
+
+      const uniqueTraits = Array.from(new Map(allTraits.map(item => [item.data?.objectId, item])).values());
+      setLooseTraitsList(uniqueTraits);
+    } catch (err) {
+      console.error("Failed to fetch loose Traits:", err);
+    }
+  }, [account?.address]);
+
+  useEffect(() => {
+    refetchRegistry();
+    const interval = setInterval(refetchRegistry, 15000);
+    return () => clearInterval(interval);
+  }, [refetchRegistry]);
+
+  useEffect(() => {
+    refetchOperatives();
+    refetchTraits();
+  }, [account?.address, activeView, refetchOperatives, refetchTraits]);
+
+  // Safely parse phase & pricing whether stored under `phase` or `current_phase`
+  const rawPhase = regFields?.phase ?? regFields?.current_phase;
+  const currentPhase = rawPhase !== undefined ? Number(rawPhase) : 0; 
+  const rawMinted = regFields?.public_minted ?? regFields?.total_minted ?? regFields?.minted;
+  const publicIndex = rawMinted !== undefined ? parseInt(String(rawMinted), 10) : 111;
   
-  // DYNAMIC PRICING AND BATCH MAPPING (SUPPORTS FREE MINT TOGGLE IN BATCH 01 OR ANY PHASE)
-  const mintPriceMist = regFields?.mint_price || "0"; 
+  // DYNAMIC PRICING AND BATCH MAPPING
+  const mintPriceMist = regFields?.mint_price ?? regFields?.price ?? "0"; 
   const mintPriceSui = Number(mintPriceMist) / 1000000000;
   const isFreeMintActive = currentPhase > 0 && mintPriceSui === 0;
   const activeBatch = ESCALATION_MATRIX.find(b => b.phase === currentPhase) || ESCALATION_MATRIX[0];
@@ -298,12 +450,6 @@ function TerminalUI() {
   const currentBatchLimit = 111 + (currentPhase * 100);
   const remainingInBatch = Math.max(0, currentBatchLimit - publicIndex);
 
-  const { data: ownedOperatives, refetch: refetchOperatives } = useSuiClientQuery('getOwnedObjects', { owner: account?.address as string, filter: { StructType: `${ORIGINAL_PACKAGE_ID}::operative::Operative` }, options: { showContent: true } }, { enabled: !!account });
-  const { data: looseTraits, refetch: refetchTraits } = useSuiClientQuery('getOwnedObjects', { owner: account?.address as string, filter: { StructType: `${ORIGINAL_PACKAGE_ID}::operative::Trait` }, options: { showContent: true } }, { enabled: !!account && activeView === 'ARMORY' });
-
-  const displayOperatives = ownedOperatives?.data || [];
-
-  // Check local storage claim flag for connected wallet
   useEffect(() => {
     if (!account?.address) {
       setHasClaimedFreeLocal(false);
@@ -313,10 +459,8 @@ function TerminalUI() {
     setHasClaimedFreeLocal(claimed);
   }, [account?.address, refreshCounter]);
 
-  // Wallet has already claimed if they hold >= 1 Operative on-chain OR claimed a free mint in this browser
   const hasAlreadyClaimedFreeMint = isFreeMintActive && (displayOperatives.length > 0 || hasClaimedFreeLocal);
 
-  // Force quantity to 1 when Free Mint is active, or clamp to remainingInBatch when Paid
   useEffect(() => {
     if (isFreeMintActive && mintQuantity !== 1) {
       setMintQuantity(1);
@@ -326,23 +470,12 @@ function TerminalUI() {
   }, [isFreeMintActive, remainingInBatch, mintQuantity]);
 
   useEffect(() => {
-    if (ownedOperatives?.data?.length && (!selectedOpId || !ownedOperatives.data.find(op => op.data?.objectId === selectedOpId))) {
-      setSelectedOpId(ownedOperatives.data[0].data?.objectId || null);
+    if (displayOperatives.length > 0 && (!selectedOpId || !displayOperatives.find(op => op.data?.objectId === selectedOpId))) {
+      setSelectedOpId(displayOperatives[0].data?.objectId || null);
     }
-  }, [ownedOperatives, selectedOpId]);
+  }, [displayOperatives, selectedOpId]);
 
   const activeLoadRef = React.useRef<string | null>(null);
-  const retryRpc = useCallback(async <T,>(fn: () => Promise<T>, retries = 5, delay = 1500): Promise<T> => {
-    try {
-      return await fn();
-    } catch (err: any) {
-      if (retries > 0 && (err?.status === 429 || err?.message?.includes('429') || err?.toString().includes('429'))) {
-        await new Promise((resolve) => setTimeout(resolve, delay));
-        return retryRpc(fn, retries - 1, delay * 1.5);
-      }
-      throw err;
-    }
-  }, []);
 
   const loadEquippedTraits = async (opId: string) => {
     activeLoadRef.current = opId;
@@ -354,14 +487,14 @@ function TerminalUI() {
     setEquippedGear({}); 
 
     try {
-      const dynamicFields = await retryRpc(() => suiClient.getDynamicFields({ parentId: opId }));
+      const dynamicFields: any = await suiRpc.getDynamicFields(opId);
       if (activeLoadRef.current !== opId) return;
 
       let gearMap: Record<string, { objectId: string; imageUrl: string; name?: string; originalCategory?: string; isNone?: boolean }> = {};
 
-      if (dynamicFields.data.length > 0) {
-        const traitIds = dynamicFields.data.map(field => field.objectId);
-        const childObjects = await retryRpc(() => suiClient.multiGetObjects({ ids: traitIds, options: { showContent: true } }));
+      if (dynamicFields?.data?.length > 0) {
+        const traitIds = dynamicFields.data.map((field: any) => field.objectId);
+        const childObjects: any[] = await suiRpc.multiGetObjects(traitIds);
         if (activeLoadRef.current !== opId) return;
 
         for (const childObject of childObjects) {
@@ -561,7 +694,6 @@ function TerminalUI() {
           
           if (!blobId) throw new Error("Missing Blob ID from Walrus");
           
-          // Append cache-busting timestamp (&v=...) so indexers treat every sync as a fresh URL
           resolve(`https://wsrv.nl/?url=https://aggregator.walrus-testnet.walrus.space/v1/blobs/${blobId}&output=png&v=${Date.now()}`);
         } catch (error) {
           console.error("Upload Error:", error);
@@ -592,7 +724,7 @@ function TerminalUI() {
       });
 
       signAndExecuteTransaction(
-        { transaction: tx },
+        { transaction: tx as any },
         {
           onSuccess: async () => {
             displayTxMessage(`[ SUCCESS: GLOBAL VISUALS & STATUS SYNCED ]`);
@@ -611,20 +743,18 @@ function TerminalUI() {
     }
   };
 
-  // --- SMART AUTO-DETECT DISPLAY METADATA UPDATER (PREVENTS ADD/EDIT ABORTS) ---
   const handleUpdateCollectionMetadata = async (forcedMode?: 'add' | 'edit') => {
     if (isProcessingTx || !globalProjectName || !account) return;
     setIsProcessingTx(true);
     displayTxMessage(`[ LOCATING DISPLAY OBJECT & CHECKING EXISTING KEYS... ]`);
 
     try {
-      const objects = await suiClient.getOwnedObjects({
-        owner: account.address,
-        filter: { StructType: `0x2::display::Display<${ORIGINAL_PACKAGE_ID}::operative::Operative>` },
-        options: { showContent: true }
-      });
+      const objects: any = await suiRpc.getOwnedObjects(
+        account.address,
+        `0x2::display::Display<${ORIGINAL_PACKAGE_ID}::operative::Operative>`
+      );
       
-      if (objects.data.length === 0) { 
+      if (!objects?.data?.length) { 
         displayTxMessage(`[ ERROR: DISPLAY OBJECT NOT FOUND IN ADMIN WALLET ]`); 
         setIsProcessingTx(false);
         return; 
@@ -634,7 +764,6 @@ function TerminalUI() {
       const displayId = displayObj.data?.objectId;
       if (!displayId) throw new Error("Invalid Display Object ID");
 
-      // Inspect existing VecMap keys inside Display<Operative> so we never trigger an Add/Edit abort
       const rawContents =
         (displayObj.data?.content as any)?.fields?.fields?.fields?.contents ||
         (displayObj.data?.content as any)?.fields?.fields?.contents ||
@@ -651,7 +780,6 @@ function TerminalUI() {
       const tx = new Transaction();
       const typeArg = `${ORIGINAL_PACKAGE_ID}::operative::Operative`;
 
-      // Compose rich item + collection description so Rarity & Mint ID always surface
       const compositeDescription = globalProjectBio.trim()
         ? `{lore_name} // Rarity: {rarity_tier} // Construct #{mint_id} — ${globalProjectBio.trim()}`
         : `{lore_name} // Rarity: {rarity_tier} // Construct #{mint_id}`;
@@ -688,14 +816,13 @@ function TerminalUI() {
         });
       }
       
-      // Publish version bump so indexers recrawl
       tx.moveCall({
         target: '0x2::display::update_version',
         typeArguments: [typeArg],
         arguments: [tx.object(displayId)]
       });
       
-      signAndExecuteTransaction({ transaction: tx }, {
+      signAndExecuteTransaction({ transaction: tx as any }, {
         onSuccess: () => {
           displayTxMessage(`[ SUCCESS: ON-CHAIN DISPLAY, RARITY & IDENTITY SYNCED ]`);
           setIsProcessingTx(false);
@@ -731,7 +858,7 @@ function TerminalUI() {
     });
 
     signAndExecuteTransaction(
-      { transaction: tx },
+      { transaction: tx as any },
       {
         onSuccess: async () => {
           displayTxMessage(`[ SUCCESS: GEAR ATTACHED. REMEMBER TO SYNC VISUALS. ]`);
@@ -762,7 +889,7 @@ function TerminalUI() {
     });
 
     signAndExecuteTransaction(
-      { transaction: tx },
+      { transaction: tx as any },
       {
         onSuccess: async () => {
           displayTxMessage(`[ SUCCESS: GEAR DETACHED. REMEMBER TO SYNC VISUALS. ]`);
@@ -791,7 +918,7 @@ function TerminalUI() {
       tx.transferObjects([tx.object(objectId)], tx.pure.address(transferAddress.trim()));
 
       signAndExecuteTransaction(
-        { transaction: tx },
+        { transaction: tx as any },
         {
           onSuccess: async () => {
             displayTxMessage(`[ SUCCESS: ${itemType} TRANSMITTED TO RECIPIENT ]`);
@@ -832,7 +959,6 @@ function TerminalUI() {
   };
 
   const mintOperative = async () => {
-    // Failsafes to prevent minting if paused, out of allocation, or already claimed free mint
     if (!account || isProcessingTx || currentPhase === 0 || remainingInBatch <= 0) return;
 
     if (isFreeMintActive && (displayOperatives.length > 0 || hasClaimedFreeLocal)) {
@@ -840,7 +966,6 @@ function TerminalUI() {
       return;
     }
 
-    // Strictly clamp to 1 construct if Free Mint is active; otherwise clamp to remainingInBatch
     const actualCount = isFreeMintActive ? 1 : Math.min(mintQuantity, remainingInBatch);
 
     setIsProcessingTx(true);
@@ -891,7 +1016,7 @@ function TerminalUI() {
       }
 
       signAndExecuteTransaction(
-        { transaction: tx },
+        { transaction: tx as any },
         {
           onSuccess: async () => {
             if (isFreeMintActive && account?.address) {
@@ -978,9 +1103,15 @@ function TerminalUI() {
     padding: '14px', background: account ? '#E5E5E5' : 'rgba(255,255,255,0.03)', color: account ? '#0D0D11' : '#555', border: account ? '1px solid #E5E5E5' : '1px solid rgba(255,255,255,0.1)', cursor: account ? 'pointer' : 'not-allowed', fontFamily: 'inherit', fontWeight: '600', borderRadius: '2px', textTransform: 'uppercase' as const, letterSpacing: '0.1em', transition: 'all 0.3s ease', width: '100%'
   };
 
-  // DYNAMIC BUTTON RENDER BASED ON PHASE, FREE MINT 1-PER-WALLET LIMIT & ALLOCATION REMAINING
   if (account) {
-    if (currentPhase === 0) {
+    if (!regFields) {
+      buttonText = '⚡ SYNCING ON-CHAIN STATE...';
+      buttonDisabled = true;
+      buttonStyle.background = 'rgba(6, 182, 212, 0.08)';
+      buttonStyle.color = '#06B6D4';
+      buttonStyle.border = '1px dashed #06B6D4';
+      buttonStyle.cursor = 'wait';
+    } else if (currentPhase === 0) {
       buttonText = 'MINT PAUSED'; 
       buttonDisabled = true; 
       buttonStyle.background = 'rgba(255,51,51,0.1)'; 
@@ -1382,7 +1513,6 @@ function TerminalUI() {
                       suiClient={suiClient}
                       isProcessingTx={isProcessingTx}
                       refreshCounter={refreshCounter}
-                      retryRpc={retryRpc}
                     />
                   );
                 })}
@@ -1505,11 +1635,11 @@ function TerminalUI() {
                       style={{ background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.2)', padding: '1rem', backdropFilter: 'blur(12px)', borderRadius: '2px', minHeight: '150px' }}
                     >
                       <h3 style={{ margin: '0 0 1rem 0', color: '#E5E5E5', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.1em', fontSize: '0.85rem' }}>// INVENTORY (DRAG TO EQUIP)</h3>
-                      {!looseTraits?.data?.length ? (
+                      {!looseTraitsList.length ? (
                         <p style={{ color: '#555', fontSize: '0.75rem', textAlign: 'center' }}>[ INVENTORY EMPTY ]</p>
                       ) : (
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px' }}>
-                          {looseTraits.data.map((item, idx) => {
+                          {looseTraitsList.map((item, idx) => {
                             const fields = (item.data?.content as any)?.fields;
                             const rawCat = fields?.category || fields?.Category || fields?.name;
                             const cat = normalizeCategory(rawCat);
@@ -1635,7 +1765,7 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <SuiClientProvider networks={networks} defaultNetwork="mainnet">
-        <WalletProvider>
+        <WalletProvider autoConnect>
           <TerminalUI />
         </WalletProvider>
       </SuiClientProvider>

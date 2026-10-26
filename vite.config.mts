@@ -1,17 +1,17 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
   server: {
     proxy: {
-      '/rpc': {
-        // Swapped to Blast API because Dwellir is currently down
-        target: 'https://sui-testnet.public.blastapi.io',
+      '/sui-rpc': {
+        target: 'https://fullnode.mainnet.sui.io:443',
         changeOrigin: true,
-        secure: false,
-        rewrite: (path) => path.replace(/^\/rpc/, '')
-      }
-    }
-  }
+        secure: true,
+        rewrite: (path) => path.replace(/^\/sui-rpc/, ''),
+      },
+    },
+  },
 })
