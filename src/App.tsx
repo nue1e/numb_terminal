@@ -21,11 +21,18 @@ const ACTIVE_PACKAGE = "0x4b254bb4146094f1214106f7be8b5cfffd59e5a0f2a89f22ae3eef
 
 // --- PROXY-FIRST + MULTI-NODE JSON-RPC ENGINE ---
 const RPC_ENDPOINTS = [
-  '/sui-rpc', // 1. Local Vite / Vercel Server Proxy (Zero CORS!)
-  'https://sui-rpc.publicnode.com',
   'https://mainnet.suiet.app',
+  'https://sui-rpc.publicnode.com',
   'https://rpc.ankr.com/sui',
   'https://1rpc.io/sui'
+];
+
+// --- MULTI-NODE WALRUS PUBLISHER ENGINE ---
+const WALRUS_PUBLISHERS = [
+  'https://publisher.walrus-testnet.walrus.space',
+  'https://walrus-testnet-publisher.staketab.org',
+  'https://publisher-testnet.walrus.nodes.guru',
+  'https://walrus-testnet-publisher.bwarelabs.com'
 ];
 
 async function rawRpcCall(method: string, params: any[]): Promise<any> {
@@ -38,12 +45,7 @@ async function rawRpcCall(method: string, params: any[]): Promise<any> {
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: 1,
-          method,
-          params
-        }),
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
         signal: controller.signal
       });
       clearTimeout(timeout);
@@ -80,17 +82,12 @@ const suiRpc = {
 
 const queryClient = new QueryClient({
   defaultOptions: {
-    queries: {
-      refetchOnWindowFocus: false,
-      staleTime: 10000, 
-      retry: 2,
-    },
+    queries: { refetchOnWindowFocus: false, staleTime: 10000, retry: 2 },
   },
 });
 
-// Route @mysten/dapp-kit hooks (including AdminDashboard.tsx!) through our CORS-free proxy
 const networks = {
-  mainnet: { url: typeof window !== 'undefined' ? `${window.location.origin}/sui-rpc` : 'https://sui-rpc.publicnode.com' }
+  mainnet: { url: 'https://mainnet.suiet.app' }
 } as any;
 
 const normalizeCategory = (rawCat: string) => {
@@ -102,12 +99,9 @@ const normalizeCategory = (rawCat: string) => {
   return cat;
 };
 
-// --- ROMAN NUMERAL CONVERTER ---
 const toRoman = (num: number): string => {
   if (num <= 0) return '';
-  const romanMap: [number, string][] = [
-    [10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I']
-  ];
+  const romanMap: [number, string][] = [ [10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I'] ];
   let res = '';
   let n = num;
   for (const [val, char] of romanMap) {
@@ -119,7 +113,6 @@ const toRoman = (num: number): string => {
   return res;
 };
 
-// --- THE ESCALATION MATRIX ---
 const ESCALATION_MATRIX = [
   { phase: 1, name: "Batch 01 // The Vanguard", lore: "The genesis entry. Purely for the early operators who see the vision first." },
   { phase: 2, name: "Batch 02 // The Recon Protocol", lore: "Mapping the ecosystem. Momentum is established; the early discount tightens." },
@@ -133,7 +126,6 @@ const ESCALATION_MATRIX = [
   { phase: 10, name: "Batch 10 // The Mythic Unknown", lore: "The final anomalies enter circulation." }
 ];
 
-// --- MEMOIZED ROLLING THUMBNAIL ---
 const ConstructThumbnail = React.memo(({ op, index, isSelected, activeGear, onClick, isProcessingTx, refreshCounter }: any) => {
   const id = op.data?.objectId || op.address;
   const fields = (op.data?.content as any)?.fields;
@@ -156,9 +148,7 @@ const ConstructThumbnail = React.memo(({ op, index, isSelected, activeGear, onCl
     if (isSelected && activeGear) {
       const formatted: Record<string, string> = {};
       Object.keys(activeGear).forEach(key => {
-        if (!activeGear[key].isNone) {
-          formatted[key] = activeGear[key].imageUrl;
-        }
+        if (!activeGear[key].isNone) formatted[key] = activeGear[key].imageUrl;
       });
       return formatted;
     }
@@ -271,12 +261,32 @@ const ConstructThumbnail = React.memo(({ op, index, isSelected, activeGear, onCl
   return (
     <div 
       onClick={() => !isProcessingTx && onClick(id)}
-      style={{ flexShrink: 0, width: '80px', height: '80px', cursor: isProcessingTx ? 'not-allowed' : 'pointer', border: isSelected ? '2px solid #06B6D4' : '1px solid rgba(255,255,255,0.2)', background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden' }}
+      style={{ 
+        flexShrink: 0, 
+        width: '80px', 
+        height: '80px', 
+        cursor: isProcessingTx ? 'not-allowed' : 'pointer', 
+        border: isSelected ? '2px solid #06B6D4' : '1px solid rgba(255,255,255,0.2)', 
+        background: 'rgba(0,0,0,0.5)', 
+        display: 'flex', 
+        alignItems: 'center', 
+        justifyContent: 'center', 
+        position: 'relative', 
+        overflow: 'hidden' 
+      }}
     >
       {isRolling && (
-        <div style={{ position: 'absolute', zIndex: 10, width: '20px', height: '20px', border: '2px solid rgba(6, 182, 212, 0.2)', borderTopColor: '#06B6D4', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+        <div style={{ 
+          position: 'absolute', 
+          zIndex: 10, 
+          width: '20px', 
+          height: '20px', 
+          border: '2px solid rgba(6, 182, 212, 0.2)', 
+          borderTopColor: '#06B6D4', 
+          borderRadius: '50%', 
+          animation: 'spin 1s linear infinite' 
+        }} />
       )}
-      
       <div style={{ opacity: isRolling ? 0 : 1, transition: 'opacity 0.2s ease', width: '100%', height: '100%' }}>
         {activeUrls.map((url, idx) => (
           <img 
@@ -325,12 +335,10 @@ function TerminalUI() {
   const [txMessage, setTxMessage] = useState<string | null>(null);
   const [transferAddress, setTransferAddress] = useState<string>('');
 
-  // --- DIRECT FAILOVER ON-CHAIN STATE ---
   const [regFields, setRegFields] = useState<any>(null);
   const [displayOperatives, setDisplayOperatives] = useState<any[]>([]);
   const [looseTraitsList, setLooseTraitsList] = useState<any[]>([]);
 
-  // --- GLOBAL COLLECTION METADATA STATES ---
   const [globalProjectName, setGlobalProjectName] = useState('Numb Polys');
   const [globalProjectBio, setGlobalProjectBio] = useState('1,111 dynamic, composable 3D constructs on Sui Mainnet powered by Move and Walrus decentralized storage. Every trait is an independent, equippable on-chain object.');
   const [globalProjectUrl, setGlobalProjectUrl] = useState('https://mainnet.numbpolys.xyz');
@@ -339,59 +347,37 @@ function TerminalUI() {
 
   const displayTxMessage = (msg: string) => {
     setTxMessage(msg);
-    setTimeout(() => setTxMessage(null), 6000);
+    setTimeout(() => setTxMessage(null), 8000);
   };
 
-  // --- BULLETPROOF REGISTRY & V3 STATE FETCHER ---
   const refetchRegistry = useCallback(async () => {
     try {
-      const targetIds = [REGISTRY_ID, V3_STATE_ID].filter(
-        id => typeof id === 'string' && id.trim().startsWith('0x') && id.trim().length > 10
-      );
-
+      const targetIds = [REGISTRY_ID, V3_STATE_ID].filter(id => typeof id === 'string' && id.trim().startsWith('0x') && id.trim().length > 10);
       let mergedFields: any = {};
       for (const id of targetIds) {
         try {
           const obj: any = await suiRpc.getObject(id.trim());
           const content = obj?.data?.content as any;
-          if (content?.fields) {
-            mergedFields = { ...mergedFields, ...content.fields };
-          } else if (obj?.error) {
-            console.warn(`Object ${id} returned error:`, obj.error);
-          }
+          if (content?.fields) mergedFields = { ...mergedFields, ...content.fields };
         } catch (innerErr) {
           console.warn(`Failed individual fetch for ${id}:`, innerErr);
         }
       }
-
-      if (Object.keys(mergedFields).length > 0) {
-        setRegFields(mergedFields);
-      } else {
-        displayTxMessage(`[ RPC DIAGNOSTIC: NO FIELDS FOUND ON REGISTRY ${REGISTRY_ID?.slice(0, 8)} ]`);
-      }
+      if (Object.keys(mergedFields).length > 0) setRegFields(mergedFields);
     } catch (err: any) {
-      console.error("Failed to fetch Registry/State:", err);
       displayTxMessage(`[ RPC ERROR: ${err?.message || 'NETWORK BLOCKED'} ]`);
     }
   }, []);
 
-  // --- BULLETPROOF OWNED OPERATIVES FETCHER ---
   const refetchOperatives = useCallback(async () => {
-    if (!account?.address) {
-      setDisplayOperatives([]);
-      return;
-    }
+    if (!account?.address) { setDisplayOperatives([]); return; }
     try {
       const packageTargets = Array.from(new Set([ORIGINAL_PACKAGE_ID, ACTIVE_PACKAGE].filter(Boolean)));
       let allOps: any[] = [];
-
       for (const pkg of packageTargets) {
         const res: any = await suiRpc.getOwnedObjects(account.address, `${pkg}::operative::Operative`);
-        if (res?.data?.length) {
-          allOps = [...allOps, ...res.data];
-        }
+        if (res?.data?.length) allOps = [...allOps, ...res.data];
       }
-
       const uniqueOps = Array.from(new Map(allOps.map(item => [item.data?.objectId, item])).values());
       setDisplayOperatives(uniqueOps);
     } catch (err) {
@@ -399,23 +385,15 @@ function TerminalUI() {
     }
   }, [account?.address]);
 
-  // --- BULLETPROOF LOOSE TRAITS FETCHER ---
   const refetchTraits = useCallback(async () => {
-    if (!account?.address) {
-      setLooseTraitsList([]);
-      return;
-    }
+    if (!account?.address) { setLooseTraitsList([]); return; }
     try {
       const packageTargets = Array.from(new Set([ORIGINAL_PACKAGE_ID, ACTIVE_PACKAGE].filter(Boolean)));
       let allTraits: any[] = [];
-
       for (const pkg of packageTargets) {
         const res: any = await suiRpc.getOwnedObjects(account.address, `${pkg}::operative::Trait`);
-        if (res?.data?.length) {
-          allTraits = [...allTraits, ...res.data];
-        }
+        if (res?.data?.length) allTraits = [...allTraits, ...res.data];
       }
-
       const uniqueTraits = Array.from(new Map(allTraits.map(item => [item.data?.objectId, item])).values());
       setLooseTraitsList(uniqueTraits);
     } catch (err) {
@@ -434,27 +412,21 @@ function TerminalUI() {
     refetchTraits();
   }, [account?.address, activeView, refetchOperatives, refetchTraits]);
 
-  // Safely parse phase & pricing whether stored under `phase` or `current_phase`
   const rawPhase = regFields?.phase ?? regFields?.current_phase;
   const currentPhase = rawPhase !== undefined ? Number(rawPhase) : 0; 
   const rawMinted = regFields?.public_minted ?? regFields?.total_minted ?? regFields?.minted;
   const publicIndex = rawMinted !== undefined ? parseInt(String(rawMinted), 10) : 111;
   
-  // DYNAMIC PRICING AND BATCH MAPPING
   const mintPriceMist = regFields?.mint_price ?? regFields?.price ?? "0"; 
   const mintPriceSui = Number(mintPriceMist) / 1000000000;
   const isFreeMintActive = currentPhase > 0 && mintPriceSui === 0;
   const activeBatch = ESCALATION_MATRIX.find(b => b.phase === currentPhase) || ESCALATION_MATRIX[0];
 
-  // --- BATCH LIMIT CALCULATION LOGIC ---
   const currentBatchLimit = 111 + (currentPhase * 100);
   const remainingInBatch = Math.max(0, currentBatchLimit - publicIndex);
 
   useEffect(() => {
-    if (!account?.address) {
-      setHasClaimedFreeLocal(false);
-      return;
-    }
+    if (!account?.address) { setHasClaimedFreeLocal(false); return; }
     const claimed = localStorage.getItem(`numbpolys_freemint_claimed_${account.address.toLowerCase()}`) === 'true';
     setHasClaimedFreeLocal(claimed);
   }, [account?.address, refreshCounter]);
@@ -462,11 +434,8 @@ function TerminalUI() {
   const hasAlreadyClaimedFreeMint = isFreeMintActive && (displayOperatives.length > 0 || hasClaimedFreeLocal);
 
   useEffect(() => {
-    if (isFreeMintActive && mintQuantity !== 1) {
-      setMintQuantity(1);
-    } else if (!isFreeMintActive && remainingInBatch > 0 && mintQuantity > remainingInBatch) {
-      setMintQuantity(remainingInBatch);
-    }
+    if (isFreeMintActive && mintQuantity !== 1) setMintQuantity(1);
+    else if (!isFreeMintActive && remainingInBatch > 0 && mintQuantity > remainingInBatch) setMintQuantity(remainingInBatch);
   }, [isFreeMintActive, remainingInBatch, mintQuantity]);
 
   useEffect(() => {
@@ -481,7 +450,6 @@ function TerminalUI() {
     activeLoadRef.current = opId;
     setIsLoadingSlots(true);
     setMainFailsafe(false);
-
     const cacheKey = `numbpolys_gear_full_${opId}`;
     sessionStorage.removeItem(cacheKey);
     setEquippedGear({}); 
@@ -491,7 +459,6 @@ function TerminalUI() {
       if (activeLoadRef.current !== opId) return;
 
       let gearMap: Record<string, { objectId: string; imageUrl: string; name?: string; originalCategory?: string; isNone?: boolean }> = {};
-
       if (dynamicFields?.data?.length > 0) {
         const traitIds = dynamicFields.data.map((field: any) => field.objectId);
         const childObjects: any[] = await suiRpc.multiGetObjects(traitIds);
@@ -507,25 +474,11 @@ function TerminalUI() {
             const cleanCat = normalizeCategory(rawCat);
             const urlStr = String(rawUrl).toLowerCase();
             const nameStr = String(traitName).toLowerCase();
-            
-            const isNone = 
-              urlStr === 'none' || 
-              urlStr === 'null' || 
-              urlStr === '' || 
-              nameStr.includes('none') || 
-              nameStr.includes('null');
-            
-            gearMap[cleanCat] = {
-              objectId: childObject.data!.objectId,
-              imageUrl: rawUrl,
-              name: traitName,
-              originalCategory: rawCat,
-              isNone: isNone
-            };
+            const isNone = urlStr === 'none' || urlStr === 'null' || urlStr === '' || nameStr.includes('none') || nameStr.includes('null');
+            gearMap[cleanCat] = { objectId: childObject.data!.objectId, imageUrl: rawUrl, name: traitName, originalCategory: rawCat, isNone: isNone };
           }
         }
       }
-
       if (activeLoadRef.current === opId) {
         setEquippedGear(gearMap);
         sessionStorage.setItem(cacheKey, JSON.stringify(gearMap)); 
@@ -551,27 +504,21 @@ function TerminalUI() {
       sessionStorage.removeItem(`numbpolys_gear_thumb_${selectedOpId}`);
     }
     await new Promise(resolve => setTimeout(resolve, 2000));
-    
     if (selectedOpId) await loadEquippedTraits(selectedOpId);
     await refetchRegistry();
     await refetchTraits();
     await refetchOperatives();
-    
     setRefreshCounter(prev => prev + 1); 
   };
 
   const activeOpData = displayOperatives.find((op: any) => (op.data?.objectId || op.address) === selectedOpId);
   const activeOpFields = (activeOpData?.data?.content as any)?.fields;
-  
   const rawLoreName = activeOpFields?.name || activeOpFields?.lore_name || (selectedOpId ? `OPERATIVE // ${selectedOpId.slice(0, 6)}...${selectedOpId.slice(-4)}` : '');
-  
   const cleanBaseName = rawLoreName.replace(/\s*\[MK\s+[IVXLCDM]+\]/gi, '').split(' // ')[0].trim();
 
   const stockToken = useMemo(() => {
     if (!cleanBaseName) return null;
-    return (registryData as any[]).find((item: any) => 
-      (item.lore_name || '').toLowerCase().trim() === cleanBaseName.toLowerCase()
-    );
+    return (registryData as any[]).find((item: any) => (item.lore_name || '').toLowerCase().trim() === cleanBaseName.toLowerCase());
   }, [cleanBaseName]);
 
   const baseBodyUrl = stockToken?.walrus_urls?.['Base Body'] || '';
@@ -587,9 +534,7 @@ function TerminalUI() {
         if (val.includes('#')) val = val.split('#')[0].trim();
         val = val.toLowerCase().trim();
       }
-      if (val && val !== 'none' && val !== 'null') {
-        stockMap[normKey] = val;
-      }
+      if (val && val !== 'none' && val !== 'null') stockMap[normKey] = val;
     });
 
     const allCategories = ['background', 'face', 'eye', 'outfits', 'jewelries', 'headwear', 'eyewear'];
@@ -599,7 +544,6 @@ function TerminalUI() {
       const stockVal = stockMap[cat] || 'none';
       const currentItem = equippedGear[cat];
       let currentVal = 'none';
-
       if (currentItem && !currentItem.isNone && currentItem.name) {
         let cName = currentItem.name;
         if (typeof cName === 'string') {
@@ -628,22 +572,13 @@ function TerminalUI() {
   useEffect(() => {
     if (isLoadingSlots) return;
     let active = true;
-    if (activeLayers.length === 0) {
-      setAreMainImagesReady(true);
-      return;
-    }
+    if (activeLayers.length === 0) { setAreMainImagesReady(true); return; }
     setAreMainImagesReady(false);
     let loadedCount = 0;
-
     activeLayers.forEach(url => {
       if(!url) return;
       const img = new Image();
-      const markLoaded = () => {
-        if (active) {
-          loadedCount++;
-          if (loadedCount >= activeLayers.length) setAreMainImagesReady(true);
-        }
-      };
+      const markLoaded = () => { if (active) { loadedCount++; if (loadedCount >= activeLayers.length) setAreMainImagesReady(true); } };
       img.onload = markLoaded;
       img.onerror = markLoaded;
       img.src = url;
@@ -671,7 +606,7 @@ function TerminalUI() {
           const fallbackImg = new Image();
           fallbackImg.crossOrigin = 'anonymous';
           fallbackImg.onload = () => { ctx.drawImage(fallbackImg, 0, 0, size, size); resolve(); };
-          fallbackImg.onerror = () => resolve();
+          fallbackImg.onerror = () => resolve(); 
           fallbackImg.src = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
         };
         img.src = `https://wsrv.nl/?url=${encodeURIComponent(url)}&output=png`;
@@ -680,24 +615,38 @@ function TerminalUI() {
 
     return new Promise<string>((resolve, reject) => {
       canvas.toBlob(async (blob) => {
-        if (!blob) return reject("Blob encoding failed");
+        if (!blob) return reject(new Error("Blob encoding failed"));
+        
+        let lastError = null;
+
         try {
-          const response = await fetch('https://publisher.walrus-testnet.walrus.space/v1/blobs?epochs=53', {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 15000); 
+
+          const response = await fetch('/walrus-upload/v1/blobs?epochs=53', {
             method: 'PUT',
             body: blob,
+            signal: controller.signal
           });
+          clearTimeout(timeout);
           
-          if (!response.ok) throw new Error("Walrus node rejected upload");
+          if (!response.ok) {
+            const errText = await response.text();
+            throw new Error(`Upload Rejected [${response.status}]: ${errText.slice(0, 40)}`);
+          }
           
           const data = await response.json();
           const blobId = data.newlyCreated?.blobObject?.blobId || data.alreadyCertified?.blobId;
           
           if (!blobId) throw new Error("Missing Blob ID from Walrus");
           
-          resolve(`https://wsrv.nl/?url=https://aggregator.walrus-testnet.walrus.space/v1/blobs/${blobId}&output=png&v=${Date.now()}`);
-        } catch (error) {
-          console.error("Upload Error:", error);
-          reject(error);
+          return resolve(`https://wsrv.nl/?url=https://aggregator.walrus-testnet.walrus.space/v1/blobs/${blobId}&output=png&v=${Date.now()}`);
+        } catch (error: any) {
+          if (error.name === 'AbortError') {
+            reject(new Error(`Upload timed out after 15 seconds.`));
+          } else {
+            reject(error);
+          }
         }
       }, 'image/png');
     });
@@ -731,14 +680,17 @@ function TerminalUI() {
             await refreshTerminalState();
             setIsProcessingTx(false);
           },
-          onError: () => {
-            displayTxMessage(`[ ERROR: SYNC FAILED ]`);
+          onError: (err: any) => {
+            const errMsg = err?.message?.split('\n')[0] || "TRANSACTION REJECTED";
+            displayTxMessage(`[ ERROR: ${errMsg.slice(0, 60)} ]`);
             setIsProcessingTx(false);
           },
         }
       );
-    } catch (error) {
-      displayTxMessage(`[ ERROR: COMPILATION ABORTED ]`);
+    } catch (error: any) {
+      console.error("Compilation/Upload Error:", error);
+      const errMsg = error?.message || typeof error === 'string' ? error : "UNKNOWN COMPILATION ERROR";
+      displayTxMessage(`[ ERROR: ${String(errMsg).toUpperCase().slice(0, 100)} ]`);
       setIsProcessingTx(false);
     }
   };
@@ -749,92 +701,48 @@ function TerminalUI() {
     displayTxMessage(`[ LOCATING DISPLAY OBJECT & CHECKING EXISTING KEYS... ]`);
 
     try {
-      const objects: any = await suiRpc.getOwnedObjects(
-        account.address,
-        `0x2::display::Display<${ORIGINAL_PACKAGE_ID}::operative::Operative>`
-      );
-      
+      const objects: any = await suiRpc.getOwnedObjects(account.address, `0x2::display::Display<${ORIGINAL_PACKAGE_ID}::operative::Operative>`);
       if (!objects?.data?.length) { 
         displayTxMessage(`[ ERROR: DISPLAY OBJECT NOT FOUND IN ADMIN WALLET ]`); 
-        setIsProcessingTx(false);
-        return; 
+        setIsProcessingTx(false); return; 
       }
       
       const displayObj = objects.data[0];
       const displayId = displayObj.data?.objectId;
       if (!displayId) throw new Error("Invalid Display Object ID");
 
-      const rawContents =
-        (displayObj.data?.content as any)?.fields?.fields?.fields?.contents ||
-        (displayObj.data?.content as any)?.fields?.fields?.contents ||
-        [];
-
-      const existingKeys = new Set<string>(
-        Array.isArray(rawContents)
-          ? rawContents.map((entry: any) => entry?.fields?.key || entry?.key).filter(Boolean)
-          : Object.keys(rawContents)
-      );
+      const rawContents = (displayObj.data?.content as any)?.fields?.fields?.fields?.contents || (displayObj.data?.content as any)?.fields?.fields?.contents || [];
+      const existingKeys = new Set<string>(Array.isArray(rawContents) ? rawContents.map((entry: any) => entry?.fields?.key || entry?.key).filter(Boolean) : Object.keys(rawContents));
 
       displayTxMessage(`[ INJECTING FULL ON-CHAIN DISPLAY METADATA... PLEASE SIGN ]`);
 
       const tx = new Transaction();
       const typeArg = `${ORIGINAL_PACKAGE_ID}::operative::Operative`;
-
-      const compositeDescription = globalProjectBio.trim()
-        ? `{lore_name} // Rarity: {rarity_tier} // Construct #{mint_id} — ${globalProjectBio.trim()}`
-        : `{lore_name} // Rarity: {rarity_tier} // Construct #{mint_id}`;
+      const compositeDescription = globalProjectBio.trim() ? `{lore_name} // Rarity: {rarity_tier} // Construct #{mint_id} — ${globalProjectBio.trim()}` : `{lore_name} // Rarity: {rarity_tier} // Construct #{mint_id}`;
 
       const metadataEntries: [string, string][] = [
-        ['name', '{lore_name}'],
-        ['image_url', '{image_url}'],
-        ['thumbnail_url', '{image_url}'],
-        ['description', compositeDescription],
-        ['rarity_tier', '{rarity_tier}'],
-        ['mint_id', '{mint_id}'],
-        ['attributes', '{rarity_tier}'],
-        ['project_name', globalProjectName.trim()],
-        ['project_url', globalProjectUrl.trim() || 'https://mainnet.numbpolys.xyz'],
-        ['creator', 'Numb Polys Syndicate'],
+        ['name', '{lore_name}'], ['image_url', '{image_url}'], ['thumbnail_url', '{image_url}'],
+        ['description', compositeDescription], ['rarity_tier', '{rarity_tier}'], ['mint_id', '{mint_id}'],
+        ['attributes', '{rarity_tier}'], ['project_name', globalProjectName.trim()],
+        ['project_url', globalProjectUrl.trim() || 'https://mainnet.numbpolys.xyz'], ['creator', 'Numb Polys Syndicate'],
       ];
 
-      if (globalProjectImage.trim()) {
-        metadataEntries.push(['project_image_url', globalProjectImage.trim()]);
-      }
-      if (globalProjectBanner.trim()) {
-        metadataEntries.push(['banner_url', globalProjectBanner.trim()]);
-      }
+      if (globalProjectImage.trim()) metadataEntries.push(['project_image_url', globalProjectImage.trim()]);
+      if (globalProjectBanner.trim()) metadataEntries.push(['banner_url', globalProjectBanner.trim()]);
 
       for (const [key, value] of metadataEntries) {
-        const callMode = existingKeys.size > 0
-          ? (existingKeys.has(key) ? 'edit' : 'add')
-          : (forcedMode || 'edit');
-
-        tx.moveCall({
-          target: `0x2::display::${callMode}`,
-          typeArguments: [typeArg],
-          arguments: [tx.object(displayId), tx.pure.string(key), tx.pure.string(value)]
-        });
+        const callMode = existingKeys.size > 0 ? (existingKeys.has(key) ? 'edit' : 'add') : (forcedMode || 'edit');
+        tx.moveCall({ target: `0x2::display::${callMode}`, typeArguments: [typeArg], arguments: [tx.object(displayId), tx.pure.string(key), tx.pure.string(value)] });
       }
       
-      tx.moveCall({
-        target: '0x2::display::update_version',
-        typeArguments: [typeArg],
-        arguments: [tx.object(displayId)]
-      });
+      tx.moveCall({ target: '0x2::display::update_version', typeArguments: [typeArg], arguments: [tx.object(displayId)] });
       
       signAndExecuteTransaction({ transaction: tx as any }, {
-        onSuccess: () => {
-          displayTxMessage(`[ SUCCESS: ON-CHAIN DISPLAY, RARITY & IDENTITY SYNCED ]`);
-          setIsProcessingTx(false);
-        },
-        onError: () => {
-          displayTxMessage(`[ ERROR: DISPLAY TRANSACTION REJECTED ]`);
-          setIsProcessingTx(false);
-        }
+        onSuccess: () => { displayTxMessage(`[ SUCCESS: ON-CHAIN DISPLAY, RARITY & IDENTITY SYNCED ]`); setIsProcessingTx(false); },
+        onError: (err: any) => { const errMsg = err?.message?.split('\n')[0] || "DISPLAY TRANSACTION REJECTED"; displayTxMessage(`[ ERROR: ${errMsg.slice(0, 60)} ]`); setIsProcessingTx(false); }
       });
     } catch(e: any) { 
-      displayTxMessage(`[ ERROR: ${e.message} ]`); 
-      setIsProcessingTx(false);
+      displayTxMessage(`[ ERROR: ${e.message} ]`); setIsProcessingTx(false);
     }
   };
 
@@ -843,34 +751,18 @@ function TerminalUI() {
     const normalizedTarget = normalizeCategory(category);
     const existingGear = equippedGear[normalizedTarget];
 
-    if (existingGear) {
-      displayTxMessage(`[ ERROR: SLOT IS OCCUPIED. UNEQUIP FIRST. ]`);
-      return;
-    }
+    if (existingGear) { displayTxMessage(`[ ERROR: SLOT IS OCCUPIED. UNEQUIP FIRST. ]`); return; }
 
     setIsProcessingTx(true);
     displayTxMessage(`[ ATTACHING TRAIT... PLEASE SIGN ]`);
 
     const tx = new Transaction();
-    tx.moveCall({
-      target: `${ACTIVE_PACKAGE}::operative::equip_trait`,
-      arguments: [tx.object(selectedOpId), tx.object(traitId)],
-    });
+    tx.moveCall({ target: `${ACTIVE_PACKAGE}::operative::equip_trait`, arguments: [tx.object(selectedOpId), tx.object(traitId)] });
 
-    signAndExecuteTransaction(
-      { transaction: tx as any },
-      {
-        onSuccess: async () => {
-          displayTxMessage(`[ SUCCESS: GEAR ATTACHED. REMEMBER TO SYNC VISUALS. ]`);
-          await refreshTerminalState();
-          setIsProcessingTx(false);
-        },
-        onError: () => {
-          displayTxMessage(`[ ERROR: TRANSACTION FAILED ]`);
-          setIsProcessingTx(false);
-        },
-      }
-    );
+    signAndExecuteTransaction({ transaction: tx as any }, {
+      onSuccess: async () => { displayTxMessage(`[ SUCCESS: GEAR ATTACHED. REMEMBER TO SYNC VISUALS. ]`); await refreshTerminalState(); setIsProcessingTx(false); },
+      onError: (err: any) => { const errMsg = err?.message?.split('\n')[0] || "TRANSACTION REJECTED"; displayTxMessage(`[ ERROR: ${errMsg.slice(0, 60)} ]`); setIsProcessingTx(false); },
+    });
   };
 
   const handleUnequip = async (category: string) => {
@@ -883,33 +775,19 @@ function TerminalUI() {
     const onChainCategory = unequippedItem?.originalCategory || category.charAt(0).toUpperCase() + category.slice(1);
     
     const tx = new Transaction();
-    tx.moveCall({
-      target: `${ACTIVE_PACKAGE}::operative::unequip_trait`,
-      arguments: [tx.object(selectedOpId), tx.pure.string(onChainCategory)],
+    tx.moveCall({ 
+      target: `${ACTIVE_PACKAGE}::operative::unequip_trait`, 
+      arguments: [tx.object(selectedOpId), tx.pure.string(onChainCategory)] 
     });
 
-    signAndExecuteTransaction(
-      { transaction: tx as any },
-      {
-        onSuccess: async () => {
-          displayTxMessage(`[ SUCCESS: GEAR DETACHED. REMEMBER TO SYNC VISUALS. ]`);
-          await refreshTerminalState();
-          setIsProcessingTx(false);
-        },
-        onError: () => {
-          displayTxMessage(`[ ERROR: TRANSACTION FAILED ]`);
-          setIsProcessingTx(false);
-        },
-      }
-    );
+    signAndExecuteTransaction({ transaction: tx as any }, {
+      onSuccess: async () => { displayTxMessage(`[ SUCCESS: GEAR DETACHED. REMEMBER TO SYNC VISUALS. ]`); await refreshTerminalState(); setIsProcessingTx(false); },
+      onError: (err: any) => { const errMsg = err?.message?.split('\n')[0] || "TRANSACTION REJECTED"; displayTxMessage(`[ ERROR: ${errMsg.slice(0, 60)} ]`); setIsProcessingTx(false); },
+    });
   };
 
   const handleTransfer = (objectId: string, itemType: 'CONSTRUCT' | 'TRAIT') => {
-    if (!transferAddress.trim() || !transferAddress.startsWith('0x') || transferAddress.length !== 66) {
-      displayTxMessage(`[ ERROR: INVALID SUI ADDRESS FORMAT ]`);
-      return;
-    }
-
+    if (!transferAddress.trim() || !transferAddress.startsWith('0x') || transferAddress.length !== 66) { displayTxMessage(`[ ERROR: INVALID SUI ADDRESS FORMAT ]`); return; }
     setIsProcessingTx(true);
     displayTxMessage(`[ INITIATING ${itemType} TRANSFER... PLEASE SIGN ]`);
 
@@ -917,27 +795,18 @@ function TerminalUI() {
       const tx = new Transaction();
       tx.transferObjects([tx.object(objectId)], tx.pure.address(transferAddress.trim()));
 
-      signAndExecuteTransaction(
-        { transaction: tx as any },
-        {
-          onSuccess: async () => {
-            displayTxMessage(`[ SUCCESS: ${itemType} TRANSMITTED TO RECIPIENT ]`);
-            if (itemType === 'CONSTRUCT' && selectedOpId === objectId) setSelectedOpId(null);
-            await new Promise(resolve => setTimeout(resolve, 3000));
-            await refreshTerminalState();
-            setTransferAddress('');
-            setIsProcessingTx(false);
-          },
-          onError: () => {
-            displayTxMessage(`[ ERROR: TRANSFER FAILED ]`);
-            setIsProcessingTx(false);
-          }
-        }
-      );
-    } catch (err: any) {
-       displayTxMessage(`[ ERROR: ${err.message} ]`);
-       setIsProcessingTx(false);
-    }
+      signAndExecuteTransaction({ transaction: tx as any }, {
+        onSuccess: async () => {
+          displayTxMessage(`[ SUCCESS: ${itemType} TRANSMITTED TO RECIPIENT ]`);
+          if (itemType === 'CONSTRUCT' && selectedOpId === objectId) setSelectedOpId(null);
+          await new Promise(resolve => setTimeout(resolve, 3000));
+          await refreshTerminalState();
+          setTransferAddress('');
+          setIsProcessingTx(false);
+        },
+        onError: (err: any) => { const errMsg = err?.message?.split('\n')[0] || "TRANSFER FAILED"; displayTxMessage(`[ ERROR: ${errMsg.slice(0, 60)} ]`); setIsProcessingTx(false); }
+      });
+    } catch (err: any) { displayTxMessage(`[ ERROR: ${err.message} ]`); setIsProcessingTx(false); }
   };
 
   const handleDragStart = (e: React.DragEvent, type: 'loose' | 'equipped', payload: any) => {
@@ -960,20 +829,14 @@ function TerminalUI() {
 
   const mintOperative = async () => {
     if (!account || isProcessingTx || currentPhase === 0 || remainingInBatch <= 0) return;
-
-    if (isFreeMintActive && (displayOperatives.length > 0 || hasClaimedFreeLocal)) {
-      displayTxMessage(`[ ERROR: FREE MINT LIMIT REACHED (MAX 1 CONSTRUCT PER WALLET) ]`);
-      return;
-    }
+    if (isFreeMintActive && (displayOperatives.length > 0 || hasClaimedFreeLocal)) { displayTxMessage(`[ ERROR: FREE MINT LIMIT REACHED (MAX 1 CONSTRUCT PER WALLET) ]`); return; }
 
     const actualCount = isFreeMintActive ? 1 : Math.min(mintQuantity, remainingInBatch);
-
     setIsProcessingTx(true);
     displayTxMessage(`[ PREPARING ${isFreeMintActive ? 'FREE MINT (1 MAX)' : `BATCH MINT (${actualCount})`}... PLEASE SIGN ]`);
 
     try {
       const tx = new Transaction();
-
       for (let i = 0; i < actualCount; i++) {
         const tokenData = registryData[publicIndex + i];
         if (!tokenData) throw new Error("Metadata index out of bounds");
@@ -984,60 +847,31 @@ function TerminalUI() {
 
         Object.keys(tokenData.display_traits).forEach(k => {
           if (k === 'Rarity Tier') return;
-
           let nameVal = tokenData.display_traits[k as keyof typeof tokenData.display_traits];
           if (typeof nameVal === 'string' && nameVal.includes('#')) nameVal = nameVal.split('#')[0].trim();
-
           const rawKey = k === 'Jewelry' ? 'Jeweleries' : k;
           const urlVal = (tokenData.walrus_urls as any)[rawKey];
 
           if (urlVal !== null && urlVal !== "None" && urlVal !== "null" && nameVal !== "None") {
-            traitCategories.push(k);
-            traitNames.push(nameVal);
-            traitUrls.push(urlVal);
+            traitCategories.push(k); traitNames.push(nameVal); traitUrls.push(urlVal);
           }
         });
 
         const [feeCoin] = tx.splitCoins(tx.gas, [tx.pure.u64(mintPriceMist)]);
-
         tx.moveCall({ 
           target: `${ACTIVE_PACKAGE}::operative::public_mint`, 
-          arguments: [ 
-            tx.object(REGISTRY_ID), 
-            feeCoin, 
-            tx.pure.string(tokenData.lore_name), 
-            tx.pure.string(tokenData.display_traits['Rarity Tier']), 
-            tx.pure.string((tokenData.walrus_urls as any)['Base Body'] || ""), 
-            tx.pure.vector('string', traitCategories), 
-            tx.pure.vector('string', traitNames), 
-            tx.pure.vector('string', traitUrls) 
-          ] 
+          arguments: [ tx.object(REGISTRY_ID), feeCoin, tx.pure.string(tokenData.lore_name), tx.pure.string(tokenData.display_traits['Rarity Tier']), tx.pure.string((tokenData.walrus_urls as any)['Base Body'] || ""), tx.pure.vector('string', traitCategories), tx.pure.vector('string', traitNames), tx.pure.vector('string', traitUrls) ] 
         });
       }
 
-      signAndExecuteTransaction(
-        { transaction: tx as any },
-        {
-          onSuccess: async () => {
-            if (isFreeMintActive && account?.address) {
-              localStorage.setItem(`numbpolys_freemint_claimed_${account.address.toLowerCase()}`, 'true');
-              setHasClaimedFreeLocal(true);
-            }
-            displayTxMessage(`[ SUCCESS: CONSTRUCT(S) DEPLOYED ]`);
-            await refreshTerminalState();
-            setMintQuantity(1); 
-            setIsProcessingTx(false);
-          },
-          onError: () => {
-            displayTxMessage(`[ ERROR: TRANSACTION REJECTED ]`);
-            setIsProcessingTx(false);
-          },
-        }
-      );
-    } catch (err: any) {
-      displayTxMessage(`[ ERROR: ${err.message || "INITIALIZATION FAILED"} ]`);
-      setIsProcessingTx(false);
-    }
+      signAndExecuteTransaction({ transaction: tx as any }, {
+        onSuccess: async () => {
+          if (isFreeMintActive && account?.address) { localStorage.setItem(`numbpolys_freemint_claimed_${account.address.toLowerCase()}`, 'true'); setHasClaimedFreeLocal(true); }
+          displayTxMessage(`[ SUCCESS: CONSTRUCT(S) DEPLOYED ]`); await refreshTerminalState(); setMintQuantity(1); setIsProcessingTx(false);
+        },
+        onError: (err: any) => { const errMsg = err?.message?.split('\n')[0] || "TRANSACTION REJECTED"; displayTxMessage(`[ ERROR: ${errMsg.slice(0, 60)} ]`); setIsProcessingTx(false); }
+      });
+    } catch (err: any) { displayTxMessage(`[ ERROR: ${err.message || "INITIALIZATION FAILED"} ]`); setIsProcessingTx(false); }
   };
   
   const totalPages = Math.ceil(displayOperatives.length / ITEMS_PER_PAGE);
@@ -1066,7 +900,7 @@ function TerminalUI() {
             const fallbackImg = new Image();
             fallbackImg.crossOrigin = 'anonymous';
             fallbackImg.onload = () => { ctx.drawImage(fallbackImg, 0, 0, size, size); resolve(); };
-            fallbackImg.onerror = () => resolve();
+            fallbackImg.onerror = () => resolve(); 
             fallbackImg.src = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
           };
           img.src = `https://wsrv.nl/?url=${encodeURIComponent(url)}&output=png`;
@@ -1074,10 +908,7 @@ function TerminalUI() {
       }
 
       canvas.toBlob((blob) => {
-        if (!blob) {
-          displayTxMessage(`[ ERROR: IMAGE ENCODING FAILED ]`);
-          setIsExporting(false); return;
-        }
+        if (!blob) { displayTxMessage(`[ ERROR: IMAGE ENCODING FAILED ]`); setIsExporting(false); return; }
         const blobUrl = URL.createObjectURL(blob);
         const link = document.createElement('a');
         const safeLoreName = dynamicDisplayName ? dynamicDisplayName.replace(/[^a-zA-Z0-9]/g, '_').replace(/_+/g, '_').toUpperCase() : `NUMB_POLYS_${selectedOpId.slice(0,6)}`;
@@ -1090,73 +921,31 @@ function TerminalUI() {
         displayTxMessage(`[ SUCCESS: PFP EXPORTED ]`);
         setIsExporting(false);
       }, 'image/png');
-
-    } catch (error) {
-      displayTxMessage(`[ ERROR: EXPORT FAILED ]`);
-      setIsExporting(false);
-    }
+    } catch (error) { displayTxMessage(`[ ERROR: EXPORT FAILED ]`); setIsExporting(false); }
   };
 
   let buttonText = isProcessingTx ? '⚡ PROCESSING...' : '⚡ CONNECT TERMINAL WALLET';
   let buttonDisabled = !account || isProcessingTx;
-  let buttonStyle = {
-    padding: '14px', background: account ? '#E5E5E5' : 'rgba(255,255,255,0.03)', color: account ? '#0D0D11' : '#555', border: account ? '1px solid #E5E5E5' : '1px solid rgba(255,255,255,0.1)', cursor: account ? 'pointer' : 'not-allowed', fontFamily: 'inherit', fontWeight: '600', borderRadius: '2px', textTransform: 'uppercase' as const, letterSpacing: '0.1em', transition: 'all 0.3s ease', width: '100%'
-  };
+  let buttonStyle = { padding: '14px', background: account ? '#E5E5E5' : 'rgba(255,255,255,0.03)', color: account ? '#0D0D11' : '#555', border: account ? '1px solid #E5E5E5' : '1px solid rgba(255,255,255,0.1)', cursor: account ? 'pointer' : 'not-allowed', fontFamily: 'inherit', fontWeight: '600', borderRadius: '2px', textTransform: 'uppercase' as const, letterSpacing: '0.1em', transition: 'all 0.3s ease', width: '100%' };
 
   if (account) {
     if (!regFields) {
-      buttonText = '⚡ SYNCING ON-CHAIN STATE...';
-      buttonDisabled = true;
-      buttonStyle.background = 'rgba(6, 182, 212, 0.08)';
-      buttonStyle.color = '#06B6D4';
-      buttonStyle.border = '1px dashed #06B6D4';
-      buttonStyle.cursor = 'wait';
+      buttonText = '⚡ SYNCING ON-CHAIN STATE...'; buttonDisabled = true; buttonStyle.background = 'rgba(6, 182, 212, 0.08)'; buttonStyle.color = '#06B6D4'; buttonStyle.border = '1px dashed #06B6D4'; buttonStyle.cursor = 'wait';
     } else if (currentPhase === 0) {
-      buttonText = 'MINT PAUSED'; 
-      buttonDisabled = true; 
-      buttonStyle.background = 'rgba(255,51,51,0.1)'; 
-      buttonStyle.color = '#ff3333'; 
-      buttonStyle.border = '1px dashed #ff3333'; 
-      buttonStyle.cursor = 'not-allowed';
+      buttonText = 'MINT PAUSED'; buttonDisabled = true; buttonStyle.background = 'rgba(255,51,51,0.1)'; buttonStyle.color = '#ff3333'; buttonStyle.border = '1px dashed #ff3333'; buttonStyle.cursor = 'not-allowed';
     } else if (remainingInBatch <= 0) {
-      buttonText = `[ BATCH ${currentPhase.toString().padStart(2, '0')} ALLOCATION DEPLETED ]`; 
-      buttonDisabled = true; 
-      buttonStyle.background = 'rgba(255, 165, 0, 0.05)'; 
-      buttonStyle.color = 'orange'; 
-      buttonStyle.border = '1px dashed orange'; 
-      buttonStyle.cursor = 'not-allowed';
+      buttonText = `[ BATCH ${currentPhase.toString().padStart(2, '0')} ALLOCATION DEPLETED ]`; buttonDisabled = true; buttonStyle.background = 'rgba(255, 165, 0, 0.05)'; buttonStyle.color = 'orange'; buttonStyle.border = '1px dashed orange'; buttonStyle.cursor = 'not-allowed';
     } else if (isFreeMintActive && hasAlreadyClaimedFreeMint) {
-      buttonText = '[ FREE MINT CLAIMED (1 MAX PER WALLET) ]';
-      buttonDisabled = true;
-      buttonStyle.background = 'rgba(255, 51, 51, 0.08)';
-      buttonStyle.color = '#ff3333';
-      buttonStyle.border = '1px dashed #ff3333';
-      buttonStyle.cursor = 'not-allowed';
+      buttonText = '[ FREE MINT CLAIMED (1 MAX PER WALLET) ]'; buttonDisabled = true; buttonStyle.background = 'rgba(255, 51, 51, 0.08)'; buttonStyle.color = '#ff3333'; buttonStyle.border = '1px dashed #ff3333'; buttonStyle.cursor = 'not-allowed';
     } else if (isFreeMintActive) {
-      buttonText = isProcessingTx ? '⚡ PROCESSING...' : `⚡ DEPLOY 1 CONSTRUCT [ FREE MINT // 1 PER WALLET ]`;
-      buttonDisabled = isProcessingTx;
-      buttonStyle.background = 'rgba(0, 255, 128, 0.12)';
-      buttonStyle.color = '#00ff80';
-      buttonStyle.border = '1px solid #00ff80';
+      buttonText = isProcessingTx ? '⚡ PROCESSING...' : `⚡ DEPLOY 1 CONSTRUCT [ FREE MINT // 1 PER WALLET ]`; buttonDisabled = isProcessingTx; buttonStyle.background = 'rgba(0, 255, 128, 0.12)'; buttonStyle.color = '#00ff80'; buttonStyle.border = '1px solid #00ff80';
     } else {
       const totalCost = mintQuantity * mintPriceSui;
-      buttonText = isProcessingTx ? '⚡ PROCESSING...' : `⚡ DEPLOY ${mintQuantity} CONSTRUCT(S) [ ${totalCost.toFixed(2)} SUI ]`; 
-      buttonDisabled = isProcessingTx;
-      buttonStyle.background = 'rgba(6, 182, 212, 0.1)'; 
-      buttonStyle.color = '#06B6D4'; 
-      buttonStyle.border = '1px solid #06B6D4';
+      buttonText = isProcessingTx ? '⚡ PROCESSING...' : `⚡ DEPLOY ${mintQuantity} CONSTRUCT(S) [ ${totalCost.toFixed(2)} SUI ]`; buttonDisabled = isProcessingTx; buttonStyle.background = 'rgba(6, 182, 212, 0.1)'; buttonStyle.color = '#06B6D4'; buttonStyle.border = '1px solid #06B6D4';
     }
   }
 
-  const slotLabels: Record<string, string> = {
-    'background': 'BKG',
-    'face': 'FAC',
-    'eye': 'EYE',
-    'outfits': 'OUT',
-    'jewelries': 'JEW',
-    'headwear': 'HEA',
-    'eyewear': 'EYW'
-  };
+  const slotLabels: Record<string, string> = { 'background': 'BKG', 'face': 'FAC', 'eye': 'EYE', 'outfits': 'OUT', 'jewelries': 'JEW', 'headwear': 'HEA', 'eyewear': 'EYW' };
 
   return (
     <div style={{ position: 'relative', width: '100%', minHeight: '100vh', backgroundColor: '#0D0D11', color: '#E5E5E5', fontFamily: 'var(--font-geist-sans), monospace', boxSizing: 'border-box', overflowX: 'hidden' }}>
@@ -1171,20 +960,7 @@ function TerminalUI() {
         .neon-wallet-override button:hover { background-color: #E5E5E5 !important; color: #0D0D11 !important; border-color: #E5E5E5 !important; }
         .crt-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.02), rgba(6, 182, 212, 0.01), rgba(0, 0, 255, 0.02)); background-size: 100% 3px, 3px 100%; z-index: 9999; pointer-events: none; opacity: 0.2; }
         @keyframes spin { to { transform: rotate(360deg); } }
-        
-        /* RESPONSIVE SCROLLBARS */
-        .terminal-scroller {
-          display: flex;
-          gap: 1rem;
-          overflow-x: auto;
-          width: 100%;
-          box-sizing: border-box;
-          padding: 0.5rem;
-          justify-content: flex-start;
-          -webkit-overflow-scrolling: touch;
-          scrollbar-width: thin;
-          scrollbar-color: #06B6D4 rgba(255, 255, 255, 0.05);
-        }
+        .terminal-scroller { display: flex; gap: 1rem; overflow-x: auto; width: 100%; box-sizing: border-box; padding: 0.5rem; justify-content: flex-start; -webkit-overflow-scrolling: touch; scrollbar-width: thin; scrollbar-color: #06B6D4 rgba(255, 255, 255, 0.05); }
         .terminal-scroller::-webkit-scrollbar { height: 4px; }
         .terminal-scroller::-webkit-scrollbar-track { background: rgba(255, 255, 255, 0.02); }
         .terminal-scroller::-webkit-scrollbar-thumb { background: #06B6D4; border-radius: 2px; }
@@ -1205,7 +981,6 @@ function TerminalUI() {
               <h1 style={{ margin: 0, fontSize: '1.2rem', letterSpacing: '2px', color: '#ffffff' }}>NUMB_POLYS // TERMINAL</h1>
               <a href="https://www.numbpolys.xyz/" style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.15)', color: '#E5E5E5', padding: '6px 12px', borderRadius: '2px', fontSize: '10px', letterSpacing: '0.1em', textTransform: 'uppercase', textDecoration: 'none', backdropFilter: 'blur(8px)', transition: 'all 0.3s ease' }} onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#E5E5E5'; e.currentTarget.style.color = '#0D0D11'; }} onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.03)'; e.currentTarget.style.color = '#E5E5E5'; }}>← Back to Main</a>
             </div>
-            
             <div style={{ display: 'flex', gap: '1rem' }}>
               <button onClick={() => !isProcessingTx && setActiveView('GENERATOR')} style={{ background: activeView === 'GENERATOR' ? '#E5E5E5' : 'rgba(255,255,255,0.03)', color: activeView === 'GENERATOR' ? '#0D0D11' : '#E5E5E5', padding: '6px 16px', border: '1px solid rgba(255,255,255,0.15)', cursor: isProcessingTx ? 'not-allowed' : 'pointer', fontFamily: 'inherit', fontWeight: '500', borderRadius: '2px', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>[ MINT ]</button>
               <button onClick={() => !isProcessingTx && setActiveView('ARMORY')} style={{ background: activeView === 'ARMORY' ? '#E5E5E5' : 'rgba(255,255,255,0.03)', color: activeView === 'ARMORY' ? '#0D0D11' : '#E5E5E5', padding: '6px 16px', border: '1px solid rgba(255,255,255,0.15)', cursor: isProcessingTx ? 'not-allowed' : 'pointer', fontFamily: 'inherit', fontWeight: '500', borderRadius: '2px', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>[ THE ARMORY ]</button>
@@ -1213,7 +988,6 @@ function TerminalUI() {
                 <button onClick={() => !isProcessingTx && setActiveView('ADMIN')} style={{ background: activeView === 'ADMIN' ? '#E5E5E5' : 'rgba(255,255,255,0.03)', color: activeView === 'ADMIN' ? '#0D0D11' : '#E5E5E5', padding: '6px 16px', border: '1px solid rgba(255,255,255,0.15)', cursor: isProcessingTx ? 'not-allowed' : 'pointer', fontFamily: 'inherit', fontWeight: '500', borderRadius: '2px', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>[ OVERSEER ]</button>
               )}
             </div>
-            
             <div className="neon-wallet-override">
               <ConnectButton />
             </div>
@@ -1228,8 +1002,6 @@ function TerminalUI() {
 
         {activeView === 'GENERATOR' ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '3.5rem', width: '100%', alignItems: 'center', paddingBottom: '4rem' }}>
-            
-            {/* --- 1. CORE MINT TERMINAL & DEPLOYMENT UPLINK --- */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2.5rem', justifyContent: 'center', width: '100%', maxWidth: '1050px' }}>
               <div className="hud-frame" style={{ width: '100%', maxWidth: '400px', display: 'flex', justifyContent: 'center', borderRadius: '2px', background: 'rgba(0,0,0,0.5)' }}>
                 <div className="hud-corner-bottom" />
@@ -1244,7 +1016,6 @@ function TerminalUI() {
                   </p>
                 </div>
 
-                {/* ACTIVE BATCH MATRIX */}
                 <div style={{ background: isFreeMintActive ? 'rgba(0, 255, 128, 0.05)' : 'rgba(6,182,212,0.05)', border: `1px solid ${isFreeMintActive ? '#00ff80' : '#06B6D4'}`, padding: '16px', borderRadius: '2px', textAlign: 'center', position: 'relative' }}>
                   <div style={{ fontSize: '10px', color: isFreeMintActive ? '#00ff80' : '#06B6D4', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '8px', fontWeight: 'bold' }}>
                     // ACTIVE DEPLOYMENT PHASE: {activeBatch.phase.toString().padStart(2, '0')} {isFreeMintActive ? '— [ FREE MINT // 1 MAX PER WALLET ]' : `— [ ${mintPriceSui} SUI ]`}
@@ -1255,8 +1026,6 @@ function TerminalUI() {
                   <div style={{ fontSize: '11px', color: '#A3A3A3', marginTop: '8px', lineHeight: '1.5' }}>
                     {activeBatch.lore}
                   </div>
-                  
-                  {/* LIVE TRACKER */}
                   {currentPhase > 0 && (
                     <div style={{ fontSize: '11px', color: remainingInBatch > 0 ? '#ff3333' : '#666', marginTop: '14px', fontWeight: 'bold', letterSpacing: '0.1em' }}>
                       // {remainingInBatch} CONSTRUCTS REMAINING IN BATCH //
@@ -1272,9 +1041,7 @@ function TerminalUI() {
                       </div>
                       <div style={{ display: 'flex', gap: '0.5rem' }}>
                         {[1, 2, 3, 4, 5].map(num => {
-                          const isSelectable = isFreeMintActive
-                            ? (num === 1 && !hasAlreadyClaimedFreeMint && remainingInBatch >= 1)
-                            : (num <= remainingInBatch);
+                          const isSelectable = isFreeMintActive ? (num === 1 && !hasAlreadyClaimedFreeMint && remainingInBatch >= 1) : (num <= remainingInBatch);
                           return (
                             <button 
                               key={num}
@@ -1289,12 +1056,9 @@ function TerminalUI() {
                       </div>
                     </div>
                   )}
-                  <button onClick={mintOperative} disabled={buttonDisabled} style={buttonStyle}>
-                    {buttonText}
-                  </button>
+                  <button onClick={mintOperative} disabled={buttonDisabled} style={buttonStyle}>{buttonText}</button>
                 </div>
 
-                {/* PROTOCOL NOTICE & MAIN REDIRECT */}
                 <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.15)', padding: '10px 14px', borderRadius: '2px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ fontSize: '11px', color: '#888' }}>Need deep documentation, mechanics, or founder roadmap?</span>
                   <a href="https://www.numbpolys.xyz/" style={{ color: '#06B6D4', fontSize: '11px', textDecoration: 'none', fontWeight: 'bold', letterSpacing: '0.05em' }}>[ EXPLORE ON MAIN → ]</a>
@@ -1302,7 +1066,6 @@ function TerminalUI() {
               </div>
             </div>
 
-            {/* --- 2. PROTOCOL TREASURY ROUTING & MINTER VALUE DISTRIBUTION --- */}
             <div style={{ width: '100%', maxWidth: '1050px', background: 'rgba(255,255,255,0.015)', border: '1px solid rgba(255,255,255,0.1)', padding: '2rem', borderRadius: '2px', boxSizing: 'border-box' }}>
               <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem', marginBottom: '1.5rem', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '1rem' }}>
                 <div>
@@ -1311,7 +1074,6 @@ function TerminalUI() {
                 </div>
               </div>
 
-              {/* TIER LOGIC EXPLANATION */}
               <div style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.06)', padding: '1rem', borderRadius: '2px', marginBottom: '1.5rem' }}>
                 <div style={{ color: '#E5E5E5', fontSize: '0.8rem', fontWeight: 'bold', marginBottom: '0.25rem', letterSpacing: '0.05em' }}>// TIER INDEPENDENCE & EARLY BELIEVER VALUE</div>
                 <p style={{ color: '#888', fontSize: '0.75rem', lineHeight: '1.6', margin: 0 }}>
@@ -1319,7 +1081,6 @@ function TerminalUI() {
                 </p>
               </div>
               
-              {/* DYNAMIC TREASURY BAR */}
               <div style={{ display: 'flex', width: '100%', height: '24px', borderRadius: '2px', overflow: 'hidden', marginBottom: '1.5rem', border: '1px solid rgba(255,255,255,0.1)' }}>
                 <div style={{ width: '35%', background: '#06B6D4', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0D0D11', fontSize: '0.7rem', fontWeight: 'bold' }}>35%</div>
                 <div style={{ width: '20%', background: '#00ff80', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0D0D11', fontSize: '0.7rem', fontWeight: 'bold' }}>20%</div>
@@ -1327,7 +1088,6 @@ function TerminalUI() {
                 <div style={{ width: '30%', background: '#E5E5E5', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0D0D11', fontSize: '0.7rem', fontWeight: 'bold' }}>30%</div>
               </div>
 
-              {/* ROUTING CARDS GRID */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
                 <div style={{ background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(6, 182, 212, 0.2)', padding: '14px', borderRadius: '2px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
@@ -1374,7 +1134,6 @@ function TerminalUI() {
                 </div>
               </div>
 
-              {/* MINTER ROYALTIES & VALUE ACCRUAL */}
               <div style={{ background: 'rgba(6, 182, 212, 0.04)', border: '1px solid rgba(6, 182, 212, 0.2)', padding: '14px 18px', borderRadius: '2px', display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
                 <div style={{ maxWidth: '800px' }}>
                   <span style={{ color: '#06B6D4', fontSize: '0.75rem', fontWeight: 'bold', letterSpacing: '0.05em' }}>⚡ MINTER REVENUE SHARING & ON-CHAIN ROYALTIES: </span>
@@ -1388,7 +1147,6 @@ function TerminalUI() {
               </div>
             </div>
 
-            {/* --- 3. CLASSIFIED ARCHETYPES (Responsive Scroll Gallery) --- */}
             <div style={{ width: '100%', maxWidth: '1050px', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '2.5rem' }}>
               <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
                 <h3 style={{ margin: '0 0 0.5rem 0', color: '#06B6D4', textTransform: 'uppercase', letterSpacing: '0.15em', fontSize: '1.1rem' }}>[ CLASSIFIED ARCHETYPES ]</h3>
@@ -1403,11 +1161,7 @@ function TerminalUI() {
                   return (
                     <div key={idx} style={{ flexShrink: 0, width: '150px', background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.1)', padding: '10px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', boxSizing: 'border-box' }}>
                       <div style={{ width: '100%', aspectRatio: '1/1', position: 'relative', overflow: 'hidden', background: 'rgba(255,255,255,0.02)' }}>
-                        <img 
-                          src={baseBody} 
-                          alt="Classified"
-                          style={{ width: '100%', height: '100%', objectFit: 'contain', filter: 'brightness(0) drop-shadow(0px 0px 4px rgba(6, 182, 212, 0.5))', opacity: 0.8 }} 
-                        />
+                        <img src={baseBody} alt="Classified" style={{ width: '100%', height: '100%', objectFit: 'contain', filter: 'brightness(0) drop-shadow(0px 0px 4px rgba(6, 182, 212, 0.5))', opacity: 0.8 }} />
                         <div style={{ position: 'absolute', top: '4px', left: '4px', color: '#ff3333', fontSize: '7px', fontWeight: 'bold', border: '1px solid #ff3333', padding: '1px 3px', background: 'rgba(255,0,0,0.1)' }}>ENCRYPTED</div>
                       </div>
                       <div style={{ color: '#E5E5E5', fontSize: '0.68rem', textAlign: 'center', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', width: '100%' }}>
@@ -1419,7 +1173,6 @@ function TerminalUI() {
               </div>
             </div>
 
-            {/* --- 4. LIVE ON-CHAIN CONSTRUCTS (Responsive Scroll Gallery) --- */}
             {account && displayOperatives.length > 0 && (
               <div style={{ width: '100%', maxWidth: '1050px', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '2.5rem' }}>
                 <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
@@ -1448,7 +1201,6 @@ function TerminalUI() {
               </div>
             )}
 
-            {/* --- 5. THE INCINERATOR / BURN MECHANICS & AUDIT VERIFICATION --- */}
             <div style={{ width: '100%', maxWidth: '1050px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '2rem', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '2.5rem' }}>
               <div style={{ background: 'rgba(255, 51, 51, 0.05)', border: '1px solid rgba(255, 51, 51, 0.2)', padding: '1.75rem', borderRadius: '2px' }}>
                 <h3 style={{ margin: '0 0 1rem 0', color: '#ff3333', textTransform: 'uppercase', letterSpacing: '0.1em', fontSize: '0.95rem' }}>// THE INCINERATOR (BURN PROTOCOL)</h3>
@@ -1483,7 +1235,6 @@ function TerminalUI() {
                 </div>
               </div>
             </div>
-
           </div>
         ) : activeView === 'ARMORY' ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '2.5rem', justifyContent: 'center', alignItems: 'center' }}>
@@ -1670,16 +1421,14 @@ function TerminalUI() {
                               >
                                 {imgUrl ? <img src={imgUrl} style={{ width: '90%', height: '90%', objectFit: 'contain', pointerEvents: 'none' }} alt="Trait" /> : <span style={{ fontSize: '9px', color: '#555' }}>IMG</span>}
                                 
-                                {!isSlotOccupied && (
-                                  <button 
-                                    onClick={(e) => { e.stopPropagation(); handleTransfer(item.data!.objectId, 'TRAIT'); }}
-                                    disabled={isProcessingTx || !transferAddress.trim()}
-                                    style={{ position: 'absolute', top: '2px', right: '2px', background: (!transferAddress.trim() || isProcessingTx) ? 'rgba(255,51,51,0.2)' : 'rgba(255,51,51,0.8)', border: 'none', color: '#fff', fontSize: '8px', cursor: (!transferAddress.trim() || isProcessingTx) ? 'not-allowed' : 'pointer', padding: '2px 4px', zIndex: 10, borderRadius: '2px', fontWeight: 'bold' }}
-                                    title={!transferAddress.trim() ? "ENTER TRANSFER ADDRESS FIRST" : "TRANSFER TRAIT"}
-                                  >
-                                    SEND
-                                  </button>
-                                )}
+                                <button 
+                                  onClick={(e) => { e.stopPropagation(); handleTransfer(item.data!.objectId, 'TRAIT'); }}
+                                  disabled={isProcessingTx || !transferAddress.trim()}
+                                  style={{ position: 'absolute', top: '2px', right: '2px', background: (!transferAddress.trim() || isProcessingTx) ? 'rgba(255,51,51,0.2)' : 'rgba(255,51,51,0.8)', border: 'none', color: '#fff', fontSize: '8px', cursor: (!transferAddress.trim() || isProcessingTx) ? 'not-allowed' : 'pointer', padding: '2px 4px', zIndex: 10, borderRadius: '2px', fontWeight: 'bold' }}
+                                  title={!transferAddress.trim() ? "ENTER TRANSFER ADDRESS FIRST" : "TRANSFER TRAIT"}
+                                >
+                                  SEND
+                                </button>
                               </div>
                             );
                           })}

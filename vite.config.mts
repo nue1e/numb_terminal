@@ -1,17 +1,16 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [react()],
   server: {
     proxy: {
-      '/sui-rpc': {
-        target: 'https://fullnode.mainnet.sui.io:443',
+      '/walrus-upload': {
+        target: 'https://publisher.walrus-testnet.walrus.space',
         changeOrigin: true,
-        secure: true,
-        rewrite: (path) => path.replace(/^\/sui-rpc/, ''),
-      },
-    },
-  },
+        secure: false,
+        rewrite: (path) => path.replace(/^\/walrus-upload/, '')
+      }
+    }
+  }
 })

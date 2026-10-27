@@ -1,8 +1,8 @@
 {
   "rewrites": [
     {
-      "source": "/sui-rpc",
-      "destination": "https://fullnode.mainnet.sui.io/"
+      "source": "/walrus-upload/:match*",
+      "destination": "https://publisher.walrus-testnet.walrus.space/:match*"
     }
   ]
 }
