@@ -1,4 +1,4 @@
-import  { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   useCurrentAccount,
   useSignAndExecuteTransaction,
@@ -6,8 +6,6 @@ import {
 import { Transaction } from '@mysten/sui/transactions';
 import { LATEST_PACKAGE_ID, REGISTRY_ID, ADMIN_CAP_ID, V3_STATE_ID } from './config';
 import registryData from './registry.json';
-
-
 
 const ESCALATION_MATRIX = [
   { phase: 1, name: "Batch 01 // The Vanguard", price: 3.33, mist: "3330000000" },
@@ -22,46 +20,71 @@ const ESCALATION_MATRIX = [
   { phase: 10, name: "Batch 10 // The Mythic Unknown", price: 20, mist: "20000000000" }
 ];
 
-// --- PROXY-FIRST JSON-RPC ENGINE FOR OVERSEER ---
-const RPC_ENDPOINTS = [
-  '/sui-rpc',
-  'https://sui-rpc.publicnode.com',
-  'https://mainnet.suiet.app',
-  'https://rpc.ankr.com/sui'
-];
+// --- OFFICIAL SUI MAINNET GRAPHQL ENGINE FOR OVERSEER ---
+const SUI_GRAPHQL_URL = 'https://graphql.mainnet.sui.io/graphql';
 
-async function rawRpcCall(method: string, params: any[]): Promise<any> {
-  let lastError: any;
-  for (const url of RPC_ENDPOINTS) {
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 6000);
+async function rawGqlCall(query: string, variables: Record<string, any> = {}): Promise<any> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 12000);
 
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
-        signal: controller.signal
-      });
-      clearTimeout(timeout);
+  const response = await fetch(SUI_GRAPHQL_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, variables }),
+    signal: controller.signal
+  });
+  clearTimeout(timeout);
 
-      if (!response.ok) continue;
-      const json = await response.json();
-      if (json.error) {
-        lastError = new Error(json.error.message || JSON.stringify(json.error));
-        continue;
-      }
-      if (json.result !== undefined) return json.result;
-    } catch (err) {
-      lastError = err;
-    }
+  if (!response.ok) {
+    throw new Error(`GraphQL HTTP ${response.status}`);
   }
-  throw lastError || new Error(`RPC failed for ${method}`);
+
+  const json = await response.json();
+  if (json.errors && !json.data) {
+    throw new Error(json.errors[0]?.message || 'GraphQL Error');
+  }
+  return json.data;
+}
+
+function extractMoveFields(rawJson: any): Record<string, any> {
+  if (!rawJson || typeof rawJson !== 'object') return {};
+  if (rawJson.fields && typeof rawJson.fields === 'object' && !Array.isArray(rawJson.fields)) {
+    return rawJson.fields;
+  }
+  return rawJson;
 }
 
 const suiRpc = {
-  getObject: (id: string): Promise<any> =>
-    rawRpcCall('sui_getObject', [id, { showContent: true, showDisplay: true, showType: true }])
+  getObject: async (id: string): Promise<any> => {
+    const data = await rawGqlCall(
+      `query GetAdminObj($id: SuiAddress!) {
+        object(address: $id) {
+          address
+          asMoveObject {
+            contents {
+              type { repr }
+              json
+            }
+          }
+        }
+      }`,
+      { id: id.trim() }
+    );
+    const node = data?.object;
+    if (!node) throw new Error(`Object ${id} not found`);
+    const moveObj = node.asMoveObject || node;
+    const fields = extractMoveFields(moveObj?.contents?.json);
+    return {
+      data: {
+        objectId: node.address,
+        content: {
+          dataType: 'moveObject',
+          type: moveObj?.contents?.type?.repr || '',
+          fields
+        }
+      }
+    };
+  }
 };
 
 export function AdminDashboard() {
@@ -94,7 +117,7 @@ export function AdminDashboard() {
     setTimeout(() => setTxMessage(null), 12000);
   };
 
-  // --- FETCH OVERSEER DATA THROUGH PROXY ---
+  // --- FETCH OVERSEER DATA VIA GRAPHQL (NO AUTO-LOOP FLICKER) ---
   const fetchOverseerData = useCallback(async () => {
     setIsSyncing(true);
     try {
@@ -117,21 +140,28 @@ export function AdminDashboard() {
     }
   }, []);
 
+  // Sync once on mount; further syncs happen only when clicking [ RE-SYNC ] or after a tx
   useEffect(() => {
     fetchOverseerData();
-    const interval = setInterval(fetchOverseerData, 15000);
-    return () => clearInterval(interval);
   }, [fetchOverseerData]);
 
-  const adminMinted = registryFields?.admin_minted !== undefined ? parseInt(registryFields.admin_minted) : (isSyncing ? null : 0);
-  const currentPhase = registryFields?.phase !== undefined ? Number(registryFields.phase) : (isSyncing ? null : 0);
+  const rawAdminMinted = registryFields?.admin_minted ?? registryFields?.reserve_minted;
+  const adminMinted = rawAdminMinted !== undefined ? parseInt(String(rawAdminMinted), 10) : (isSyncing ? null : 0);
+
+  const rawPhase = registryFields?.phase ?? registryFields?.current_phase;
+  const currentPhase = rawPhase !== undefined ? Number(rawPhase) : (isSyncing ? null : 0);
+
   const currentPriceMist = registryFields?.mint_price !== undefined ? String(registryFields.mint_price) : "0";
   const currentPriceSui = Number(currentPriceMist) / 1_000_000_000;
   
   const rawBalance = registryFields?.balance;
-  const treasurySui = (rawBalance?.fields?.value ? Number(rawBalance.fields.value) : Number(rawBalance || 0)) / 1_000_000_000;
+  const parsedBalance =
+    typeof rawBalance === 'object' && rawBalance !== null
+      ? Number(rawBalance?.fields?.value ?? rawBalance?.value ?? 0)
+      : Number(rawBalance || 0);
+  const treasurySui = parsedBalance / 1_000_000_000;
 
-  const stakingActive = v3Fields?.staking_active;
+  const stakingActive = Boolean(v3Fields?.staking_active);
 
   // --- 1. SYSTEM INITIALIZATION ---
   const handleInitializeV3 = () => {
@@ -370,7 +400,7 @@ export function AdminDashboard() {
       <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.1)', padding: '1.5rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
           <h3 style={{ margin: 0, color: '#06B6D4' }}>// OMNI-STATE STATUS</h3>
-          <button onClick={() => fetchOverseerData()} disabled={isSyncing} style={{ background: 'transparent', color: '#06B6D4', border: '1px solid #06B6D4', padding: '4px 12px', fontSize: '10px', cursor: 'pointer', fontFamily: 'inherit' }}>
+          <button onClick={() => fetchOverseerData()} disabled={isSyncing} style={{ background: 'transparent', color: '#06B6D4', border: '1px solid #06B6D4', padding: '4px 12px', fontSize: '10px', cursor: isSyncing ? 'wait' : 'pointer', fontFamily: 'inherit' }}>
             {isSyncing ? '[ SYNCING... ]' : '[ RE-SYNC ]'}
           </button>
         </div>

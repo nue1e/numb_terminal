@@ -2,7 +2,7 @@ import { createDAppKit } from "@mysten/dapp-kit-react";
 import { SuiGrpcClient } from "@mysten/sui/grpc";
 
 const GRPC_URLS = {
-  mainnet: "https://fullnode.mainnet.sui.io:443",
+  mainnet: "'https://sui-rpc.publicnode.com'",
   testnet: "https://fullnode.testnet.sui.io:443",
   devnet: "https://fullnode.devnet.sui.io:443",
 };
