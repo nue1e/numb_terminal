@@ -266,7 +266,6 @@ const suiRpc = {
 
     let data: any;
     try {
-      // Primary: executeTransaction with transactionDataBcs and clean ExecutionResult (no "errors" field)
       data = await rawGqlCall(
         `mutation ExecTxBcs($txBytes: Base64!, $signatures: [Base64!]!) {
           executeTransaction(transactionDataBcs: $txBytes, signatures: $signatures) {
@@ -280,7 +279,6 @@ const suiRpc = {
     } catch (err1: any) {
       const msg1 = String(err1?.message || '');
       if (msg1.includes('txBytes') || msg1.includes('Unknown argument')) {
-        // Fallback 1: if argument is named txBytes
         try {
           data = await rawGqlCall(
             `mutation ExecTxStr($txBytes: String!, $signatures: [String!]!) {
@@ -303,7 +301,6 @@ const suiRpc = {
           );
         }
       } else {
-        // Fallback 2: minimal __typename selection on ExecutionResult so no subfield can fail
         data = await rawGqlCall(
           `mutation ExecTxBcsMin($txBytes: Base64!, $signatures: [Base64!]!) {
             executeTransaction(transactionDataBcs: $txBytes, signatures: $signatures) {
@@ -1303,7 +1300,7 @@ function TerminalUI() {
         .hud-corner-bottom::after { bottom: -1px; right: -1px; border-width: 0 2px 2px 0; }
         .neon-wallet-override button { background-color: rgba(255, 255, 255, 0.03) !important; border: 1px solid rgba(255, 255, 255, 0.15) !important; color: #E5E5E5 !important; font-family: inherit !important; border-radius: 2px !important; backdrop-filter: blur(8px) !important; transition: all 0.3s ease !important; }
         .neon-wallet-override button:hover { background-color: #E5E5E5 !important; color: #0D0D11 !important; border-color: #E5E5E5 !important; }
-        .crt-overlay { position: fixed; top: 0, left: 0; width: 100vw; height: 100vh; background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.02), rgba(6, 182, 212, 0.01), rgba(0, 0, 255, 0.02)); background-size: 100% 3px, 3px 100%; z-index: 9999; pointer-events: none; opacity: 0.2; }
+        .crt-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.02), rgba(6, 182, 212, 0.01), rgba(0, 0, 255, 0.02)); background-size: 100% 3px, 3px 100%; z-index: 9999; pointer-events: none; opacity: 0.2; }
         @keyframes spin { to { transform: rotate(360deg); } }
         .terminal-scroller { display: flex; gap: 1rem; overflow-x: auto; width: 100%; box-sizing: border-box; padding: 0.5rem; justify-content: flex-start; -webkit-overflow-scrolling: touch; scrollbar-width: thin; scrollbar-color: #06B6D4 rgba(255, 255, 255, 0.05); }
         .terminal-scroller::-webkit-scrollbar { height: 4px; }
@@ -1407,87 +1404,6 @@ function TerminalUI() {
                 <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.15)', padding: '10px 14px', borderRadius: '2px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ fontSize: '11px', color: '#888' }}>Need deep documentation, mechanics, or founder roadmap?</span>
                   <a href="https://www.numbpolys.xyz/" style={{ color: '#06B6D4', fontSize: '11px', textDecoration: 'none', fontWeight: 'bold', letterSpacing: '0.05em' }}>[ EXPLORE ON MAIN → ]</a>
-                </div>
-              </div>
-            </div>
-
-            <div style={{ width: '100%', maxWidth: '1050px', background: 'rgba(255,255,255,0.015)', border: '1px solid rgba(255,255,255,0.1)', padding: '2rem', borderRadius: '2px', boxSizing: 'border-box' }}>
-              <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem', marginBottom: '1.5rem', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '1rem' }}>
-                <div>
-                  <h3 style={{ margin: '0 0 0.25rem 0', color: '#06B6D4', textTransform: 'uppercase', letterSpacing: '0.12em', fontSize: '1rem' }}>// PROTOCOL TREASURY ROUTING</h3>
-                  <div style={{ fontSize: '0.8rem', color: '#A3A3A3' }}>Autonomous distribution of deployment capital toward ecosystem liquidity, TVL, and R&D.</div>
-                </div>
-              </div>
-
-              <div style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.06)', padding: '1rem', borderRadius: '2px', marginBottom: '1.5rem' }}>
-                <div style={{ color: '#E5E5E5', fontSize: '0.8rem', fontWeight: 'bold', marginBottom: '0.25rem', letterSpacing: '0.05em' }}>// TIER INDEPENDENCE & EARLY BELIEVER VALUE</div>
-                <p style={{ color: '#888', fontSize: '0.75rem', lineHeight: '1.6', margin: 0 }}>
-                  The Numb Polys mint rolls out through independent thematic batches. Early operators and community stalwarts are rewarded with heavily subsidized, lower-cost access. As the ecosystem establishes and infrastructure expands, the entry threshold dynamically shifts. The capital model below dynamically routes the current batch pricing to back and scale the entire project.
-                </p>
-              </div>
-              
-              <div style={{ display: 'flex', width: '100%', height: '24px', borderRadius: '2px', overflow: 'hidden', marginBottom: '1.5rem', border: '1px solid rgba(255,255,255,0.1)' }}>
-                <div style={{ width: '35%', background: '#06B6D4', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0D0D11', fontSize: '0.7rem', fontWeight: 'bold' }}>35%</div>
-                <div style={{ width: '20%', background: '#00ff80', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0D0D11', fontSize: '0.7rem', fontWeight: 'bold' }}>20%</div>
-                <div style={{ width: '15%', background: '#ff3333', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0D0D11', fontSize: '0.7rem', fontWeight: 'bold' }}>15%</div>
-                <div style={{ width: '30%', background: '#E5E5E5', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0D0D11', fontSize: '0.7rem', fontWeight: 'bold' }}>30%</div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
-                <div style={{ background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(6, 182, 212, 0.2)', padding: '14px', borderRadius: '2px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                    <span style={{ color: '#06B6D4', fontSize: '0.8rem', fontWeight: 'bold' }}>{(mintPriceSui * 0.35).toFixed(2)} SUI [35%]</span>
-                    <span style={{ fontSize: '9px', color: '#666', border: '1px solid #333', padding: '1px 4px' }}>DEX POOL</span>
-                  </div>
-                  <div style={{ color: '#E5E5E5', fontSize: '0.75rem', fontWeight: 'bold', marginBottom: '4px' }}>ECOSYSTEM LIQUIDITY</div>
-                  <p style={{ color: '#888', fontSize: '0.75rem', margin: 0, lineHeight: '1.5' }}>
-                    Locked directly to bootstrap liquidity for our upcoming native meme token. This token unlocks exclusive rewards and burn-to-earn functions.
-                  </p>
-                </div>
-
-                <div style={{ background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(0, 255, 128, 0.2)', padding: '14px', borderRadius: '2px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                    <span style={{ color: '#00ff80', fontSize: '0.8rem', fontWeight: 'bold' }}>{(mintPriceSui * 0.20).toFixed(2)} SUI [20%]</span>
-                    <span style={{ fontSize: '9px', color: '#666', border: '1px solid #333', padding: '1px 4px' }}>DEFI TVL</span>
-                  </div>
-                  <div style={{ color: '#E5E5E5', fontSize: '0.75rem', fontWeight: 'bold', marginBottom: '4px' }}>STAKING REWARDS VAULT</div>
-                  <p style={{ color: '#888', fontSize: '0.75rem', margin: 0, lineHeight: '1.5' }}>
-                    Allocated directly to native staking protocols, generating on-chain yield that feeds back to active Operative constructors.
-                  </p>
-                </div>
-
-                <div style={{ background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(255, 51, 51, 0.2)', padding: '14px', borderRadius: '2px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                    <span style={{ color: '#ff3333', fontSize: '0.8rem', fontWeight: 'bold' }}>{(mintPriceSui * 0.15).toFixed(2)} SUI [15%]</span>
-                    <span style={{ fontSize: '9px', color: '#666', border: '1px solid #333', padding: '1px 4px' }}>DEV ENGINE</span>
-                  </div>
-                  <div style={{ color: '#E5E5E5', fontSize: '0.75rem', fontWeight: 'bold', marginBottom: '4px' }}>INFRASTRUCTURE & R&D</div>
-                  <p style={{ color: '#888', fontSize: '0.75rem', margin: 0, lineHeight: '1.5' }}>
-                    Subsidizes permanent Walrus Mainnet storage epochs, dynamic gas buffers, and continuous engineering of new experimental Web3 mechanics.
-                  </p>
-                </div>
-
-                <div style={{ background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(255, 255, 255, 0.15)', padding: '14px', borderRadius: '2px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                    <span style={{ color: '#E5E5E5', fontSize: '0.8rem', fontWeight: 'bold' }}>{(mintPriceSui * 0.30).toFixed(2)} SUI [30%]</span>
-                    <span style={{ fontSize: '9px', color: '#666', border: '1px solid #333', padding: '1px 4px' }}>FOUNDER</span>
-                  </div>
-                  <div style={{ color: '#E5E5E5', fontSize: '0.75rem', fontWeight: 'bold', marginBottom: '4px' }}>CREATOR RUNWAY</div>
-                  <p style={{ color: '#888', fontSize: '0.75rem', margin: 0, lineHeight: '1.5' }}>
-                    Sustains solo development operations to maintain 24/7 uptime, deploy contract upgrades, and spearhead the long-term project roadmap.
-                  </p>
-                </div>
-              </div>
-
-              <div style={{ background: 'rgba(6, 182, 212, 0.04)', border: '1px solid rgba(6, 182, 212, 0.2)', padding: '14px 18px', borderRadius: '2px', display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
-                <div style={{ maxWidth: '800px' }}>
-                  <span style={{ color: '#06B6D4', fontSize: '0.75rem', fontWeight: 'bold', letterSpacing: '0.05em' }}>⚡ MINTER REVENUE SHARING & ON-CHAIN ROYALTIES: </span>
-                  <span style={{ color: '#A3A3A3', fontSize: '0.75rem', lineHeight: '1.5' }}>
-                    Early minters and believers are true stakeholders in the ecosystem. A portion of secondary marketplace royalties and upcoming swap protocol fees route directly back to original minters and active Operative holders.
-                  </span>
-                </div>
-                <div style={{ color: '#00ff80', fontSize: '0.8rem', fontWeight: 'bold', letterSpacing: '0.05em' }}>
-                  COMMUNITY FIRST
                 </div>
               </div>
             </div>
