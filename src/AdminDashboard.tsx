@@ -30,9 +30,9 @@ export interface PortalSettings {
 export const DEFAULT_PORTAL_SETTINGS: PortalSettings = {
   wl1ApplyOpen: true,
   wl2ApplyOpen: true,
-  wl1MaxApps: 150,
-  wl2MaxApps: 250,
-  checkerResultsLive: true
+  wl1MaxApps: 99999,
+  wl2MaxApps: 99999,
+  checkerResultsLive: false
 };
 
 export const DEFAULT_PHASES: PhaseConfigItem[] = [
@@ -210,7 +210,6 @@ export function parseAllocationText(rawText: string, defaultQty: number): Record
   for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed) continue;
-    // Matches 0x... wallet addresses even inside multi-column CSV rows
     const addrMatch = trimmed.match(/0x[a-fA-F0-9]{40,64}/);
     if (!addrMatch) continue;
     const addr = addrMatch[0].toLowerCase();
@@ -412,6 +411,24 @@ export function AdminDashboard() {
     );
   };
 
+  // Instant Local Sync Helper whenever Admin toggles Stage 1 / Stage 2 / Stage 3 or Cap Numbers
+  const savePortalSettingsLocally = (updatedSettings: PortalSettings) => {
+    setPortalSettings(updatedSettings);
+    const fallbackQty = Math.max(1, parseInt(defaultBulkCount, 10) || 1);
+    const configPayload = {
+      phases,
+      portalSettings: updatedSettings,
+      whitelists: {
+        '1': parseAllocationText(wlText1, fallbackQty),
+        '2': parseAllocationText(wlText2, fallbackQty),
+        '3': parseAllocationText(wlText3, fallbackQty)
+      },
+      updatedAt: Date.now()
+    };
+    localStorage.setItem('numbpolys_terminal_config_v1', JSON.stringify(configPayload));
+    window.dispatchEvent(new Event('numbpolys_config_updated'));
+  };
+
   // CSV / TXT File Upload Handler for Active Whitelist Tab
   const handleCsvFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -469,7 +486,7 @@ export function AdminDashboard() {
     window.dispatchEvent(new Event('numbpolys_config_updated'));
 
     setIsProcessing(true);
-    displayMessage(`[ SYNCING PHASES, DATES, PORTAL SETTINGS & WHITELISTS ON-CHAIN... PLEASE SIGN ]`);
+    displayMessage(`[ SYNCING PHASES, DATES, 3-STAGE PORTAL MODE & WHITELISTS ON-CHAIN... PLEASE SIGN ]`);
 
     try {
       const objects: any = await suiRpc.getOwnedObjects(
@@ -520,8 +537,13 @@ export function AdminDashboard() {
         { transaction: tx as any },
         {
           onSuccess: () => {
+            const stageLabel = portalSettings.checkerResultsLive
+              ? 'STAGE 3: REVEAL ON-CHAIN'
+              : (portalSettings.wl1ApplyOpen || portalSettings.wl2ApplyOpen)
+              ? 'STAGE 1: APPLICATIONS OPEN'
+              : 'STAGE 2: APPLICATIONS CLOSED (PENDING)';
             displayMessage(
-              `[ SUCCESS: PHASES, DATES & WHITELISTS SYNCED ON-CHAIN (FREE: ${Object.keys(wl1Map).length} | WL1: ${Object.keys(wl2Map).length} | WL2: ${Object.keys(wl3Map).length} WALLETS) ]`
+              `[ SUCCESS: ${stageLabel} | FREE: ${Object.keys(wl1Map).length} | WL1: ${Object.keys(wl2Map).length} | WL2: ${Object.keys(wl3Map).length} WALLETS SYNCED ON-CHAIN ]`
             );
             setIsProcessing(false);
           },
@@ -782,6 +804,11 @@ export function AdminDashboard() {
   const parsedCount3 = Object.keys(parseAllocationText(wlText3, fallbackQty)).length;
   const totalAllocatedPublicPool = phases.reduce((acc, p) => acc + (Number(p.allocation) || 0), 0);
 
+  // Determine active stage in the 3-Stage Pipeline
+  const isStage1Open = (portalSettings.wl1ApplyOpen || portalSettings.wl2ApplyOpen) && !portalSettings.checkerResultsLive;
+  const isStage2Closed = !portalSettings.wl1ApplyOpen && !portalSettings.wl2ApplyOpen && !portalSettings.checkerResultsLive;
+  const isStage3Reveal = Boolean(portalSettings.checkerResultsLive);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', width: '100%', maxWidth: '800px', margin: '0 auto', fontFamily: 'monospace' }}>
       {txMessage && (
@@ -895,27 +922,141 @@ export function AdminDashboard() {
         </div>
       </div>
 
-      {/* PHASE NAMES, SCHEDULED DATES, PORTAL SETTINGS & WHITELIST MANAGER */}
+      {/* PHASE NAMES, SCHEDULED DATES, 3-STAGE PORTAL SETTINGS & WHITELIST MANAGER */}
       <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(0, 255, 128, 0.3)', padding: '1.5rem' }}>
         <h3 style={{ margin: '0 0 0.5rem 0', color: '#00ff80' }}>// WHITELIST PORTAL, PHASE DATES & ALLOCATION ENGINE</h3>
         <p style={{ color: '#A3A3A3', fontSize: '0.75rem', marginBottom: '1rem', lineHeight: '1.5' }}>
-          Configure phase titles, scheduled launch dates, application portal switches (WL 1 & WL 2), and upload CSV/wallet lists for <strong style={{ color: '#fff' }}>Phase 1 (Community Free)</strong>, <strong style={{ color: '#fff' }}>Phase 2 (WL 1)</strong>, and <strong style={{ color: '#fff' }}>Phase 3 (WL 2)</strong>.
+          Control the **3-Stage Whitelist Pipeline** (`OPEN` ➔ `CLOSED (PENDING)` ➔ `REVEAL ON-CHAIN`), edit phase launch schedules, and upload your winning CSV lists for <strong style={{ color: '#fff' }}>Phase 1 (Free)</strong>, <strong style={{ color: '#fff' }}>Phase 2 (WL 1)</strong>, and <strong style={{ color: '#fff' }}>Phase 3 (WL 2)</strong>.
         </p>
 
-        {/* APPLICATION PORTAL CONTROLS (OPEN / CLOSED + MAX SPOTS) */}
-        <div style={{ background: 'rgba(6, 182, 212, 0.05)', border: '1px solid rgba(6, 182, 212, 0.25)', padding: '12px', marginBottom: '1.25rem', borderRadius: '2px' }}>
-          <div style={{ fontSize: '0.72rem', color: '#06B6D4', fontWeight: 'bold', marginBottom: '10px', letterSpacing: '0.05em' }}>
-            // WHITELIST APPLICATION & CHECKER PORTAL CONTROLS (/whitelist)
+        {/* 3-STAGE PIPELINE MASTER SWITCHES */}
+        <div style={{ background: 'rgba(6, 182, 212, 0.05)', border: '1px solid rgba(6, 182, 212, 0.3)', padding: '14px', marginBottom: '1.25rem', borderRadius: '2px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '10px' }}>
+            <span style={{ fontSize: '0.75rem', color: '#06B6D4', fontWeight: 'bold', letterSpacing: '0.05em' }}>
+              // 1. 3-STAGE WHITELIST PORTAL PIPELINE (/whitelist)
+            </span>
+            <span style={{ fontSize: '10px', color: isStage3Reveal ? '#00ff80' : isStage1Open ? '#06B6D4' : '#ffcc00', fontWeight: 'bold' }}>
+              CURRENT MODE: {isStage3Reveal ? 'STAGE 3 // ON-CHAIN RESULTS REVEALED' : isStage1Open ? 'STAGE 1 // APPLICATIONS OPEN (SHOWS PENDING)' : 'STAGE 2 // APPLICATIONS CLOSED (SHOWS PENDING)'}
+            </span>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.75rem' }}>
-            <div style={{ background: 'rgba(0,0,0,0.4)', padding: '10px', border: '1px solid rgba(255,255,255,0.08)' }}>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '0.65rem', marginBottom: '14px' }}>
+            {/* STAGE 1 BUTTON */}
+            <button
+              type="button"
+              onClick={() => {
+                savePortalSettingsLocally({
+                  ...portalSettings,
+                  wl1ApplyOpen: true,
+                  wl2ApplyOpen: true,
+                  checkerResultsLive: false
+                });
+                displayMessage('[ STAGE 1 ACTIVE: APPLICATIONS OPEN (CHECKER SHOWS PENDING UNTIL REVEAL) ]');
+              }}
+              style={{
+                padding: '10px',
+                fontSize: '10px',
+                fontWeight: 'bold',
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+                textAlign: 'left',
+                background: isStage1Open ? 'rgba(6, 182, 212, 0.22)' : 'rgba(0,0,0,0.4)',
+                color: isStage1Open ? '#06B6D4' : '#A3A3A3',
+                border: isStage1Open ? '1px solid #06B6D4' : '1px solid rgba(255,255,255,0.1)'
+              }}
+            >
+              <div style={{ marginBottom: '4px', color: isStage1Open ? '#06B6D4' : '#E5E5E5' }}>
+                [ 🟢 STAGE 1: APPLICATIONS OPEN ]
+              </div>
+              <div style={{ fontSize: '9px', color: '#888', fontWeight: 'normal', lineHeight: '1.4' }}>
+                Users submit wallets to Google Sheet & download pass. Status shows PENDING.
+              </div>
+            </button>
+
+            {/* STAGE 2 BUTTON */}
+            <button
+              type="button"
+              onClick={() => {
+                savePortalSettingsLocally({
+                  ...portalSettings,
+                  wl1ApplyOpen: false,
+                  wl2ApplyOpen: false,
+                  checkerResultsLive: false
+                });
+                displayMessage('[ STAGE 2 ACTIVE: APPLICATIONS CLOSED (ALL APPLICANTS STILL SHOW PENDING) ]');
+              }}
+              style={{
+                padding: '10px',
+                fontSize: '10px',
+                fontWeight: 'bold',
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+                textAlign: 'left',
+                background: isStage2Closed ? 'rgba(255, 204, 0, 0.18)' : 'rgba(0,0,0,0.4)',
+                color: isStage2Closed ? '#ffcc00' : '#A3A3A3',
+                border: isStage2Closed ? '1px solid #ffcc00' : '1px solid rgba(255,255,255,0.1)'
+              }}
+            >
+              <div style={{ marginBottom: '4px', color: isStage2Closed ? '#ffcc00' : '#E5E5E5' }}>
+                [ 🔒 STAGE 2: APPLICATIONS CLOSED ]
+              </div>
+              <div style={{ fontSize: '9px', color: '#888', fontWeight: 'normal', lineHeight: '1.4' }}>
+                Locks submission form. Applicants still see PENDING while you upload CSVs.
+              </div>
+            </button>
+
+            {/* STAGE 3 BUTTON */}
+            <button
+              type="button"
+              onClick={() => {
+                savePortalSettingsLocally({
+                  ...portalSettings,
+                  wl1ApplyOpen: false,
+                  wl2ApplyOpen: false,
+                  checkerResultsLive: true
+                });
+                displayMessage('[ STAGE 3 ACTIVE: ON-CHAIN RESULTS REVEALED GLOBALLY (ELIGIBLE / NOT ELIGIBLE) ]');
+              }}
+              style={{
+                padding: '10px',
+                fontSize: '10px',
+                fontWeight: 'bold',
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+                textAlign: 'left',
+                background: isStage3Reveal ? 'rgba(0, 255, 128, 0.2)' : 'rgba(0,0,0,0.4)',
+                color: isStage3Reveal ? '#00ff80' : '#A3A3A3',
+                border: isStage3Reveal ? '1px solid #00ff80' : '1px solid rgba(255,255,255,0.1)'
+              }}
+            >
+              <div style={{ marginBottom: '4px', color: isStage3Reveal ? '#00ff80' : '#E5E5E5' }}>
+                [ 👁️ STAGE 3: REVEAL ON-CHAIN ]
+              </div>
+              <div style={{ fontSize: '9px', color: '#888', fontWeight: 'normal', lineHeight: '1.4' }}>
+                Cancels Pending status. Reveals final ELIGIBLE / NOT ELIGIBLE across all phases.
+              </div>
+            </button>
+          </div>
+
+          {/* INDIVIDUAL TIER OVERRIDES & OPTIONAL CAPS */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '0.85rem' }}>
+            {/* WL 1 CARD */}
+            <div style={{ background: 'rgba(0,0,0,0.5)', padding: '12px', border: `1px solid ${portalSettings.wl1ApplyOpen ? 'rgba(0,255,128,0.35)' : 'rgba(255,51,51,0.35)'}` }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                <span style={{ fontSize: '11px', color: '#E5E5E5', fontWeight: 'bold' }}>WL 1 (2 SUI) Applications:</span>
+                <span style={{ fontSize: '11px', color: '#E5E5E5', fontWeight: 'bold' }}>PHASE 02 // WL 1 (2 SUI)</span>
                 <button
-                  onClick={() => setPortalSettings(prev => ({ ...prev, wl1ApplyOpen: !prev.wl1ApplyOpen }))}
+                  type="button"
+                  onClick={() => {
+                    const nextOpen = !portalSettings.wl1ApplyOpen;
+                    savePortalSettingsLocally({
+                      ...portalSettings,
+                      wl1ApplyOpen: nextOpen,
+                      checkerResultsLive: nextOpen ? false : portalSettings.checkerResultsLive
+                    });
+                  }}
                   style={{
-                    padding: '3px 8px',
-                    fontSize: '10px',
+                    padding: '4px 8px',
+                    fontSize: '9px',
                     fontWeight: 'bold',
                     cursor: 'pointer',
                     fontFamily: 'inherit',
@@ -924,29 +1065,56 @@ export function AdminDashboard() {
                     border: `1px solid ${portalSettings.wl1ApplyOpen ? '#00ff80' : '#ff3333'}`
                   }}
                 >
-                  {portalSettings.wl1ApplyOpen ? 'OPEN' : 'CLOSED (CHECKER ONLY)'}
+                  {portalSettings.wl1ApplyOpen ? '● FORM OPEN' : '🔒 FORM CLOSED'}
                 </button>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '10px', color: '#888' }}>
-                <span>Max Application Spots:</span>
-                <input
-                  type="number"
-                  min="1"
-                  value={portalSettings.wl1MaxApps}
-                  onChange={(e) => setPortalSettings(prev => ({ ...prev, wl1MaxApps: Math.max(1, parseInt(e.target.value, 10) || 100) }))}
-                  style={{ width: '65px', background: '#000', border: '1px solid #444', color: '#06B6D4', padding: '4px 6px', fontFamily: 'inherit', fontSize: '11px', fontWeight: 'bold' }}
-                />
+
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '10px', color: '#A3A3A3', marginBottom: '6px' }}>
+                <span>Application Cap:</span>
+                <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                  <input
+                    type="number"
+                    min="1"
+                    value={portalSettings.wl1MaxApps}
+                    onChange={(e) => {
+                      const val = Math.max(1, parseInt(e.target.value, 10) || 100);
+                      savePortalSettingsLocally({ ...portalSettings, wl1MaxApps: val });
+                    }}
+                    style={{ width: '65px', background: '#000', border: '1px solid #06B6D4', color: '#06B6D4', padding: '4px 6px', fontFamily: 'inherit', fontSize: '11px', fontWeight: 'bold' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => savePortalSettingsLocally({ ...portalSettings, wl1MaxApps: portalSettings.wl1MaxApps >= 9999 ? 100 : 99999 })}
+                    style={{ background: 'rgba(255,255,255,0.06)', color: '#E5E5E5', border: '1px solid #555', padding: '4px 6px', fontSize: '9px', cursor: 'pointer', fontFamily: 'inherit' }}
+                  >
+                    {portalSettings.wl1MaxApps >= 9999 ? 'SET 100' : 'NO LIMIT'}
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ fontSize: '10px', color: '#888', display: 'flex', justifyContent: 'space-between', borderTop: '1px dashed rgba(255,255,255,0.08)', paddingTop: '6px' }}>
+                <span>On-Chain Approved: <strong style={{ color: '#00ff80' }}>{parsedCount2} Wallets</strong></span>
+                <span>Cap Mode: <strong style={{ color: '#06B6D4' }}>{portalSettings.wl1MaxApps >= 9999 ? 'UNLIMITED' : `${portalSettings.wl1MaxApps} MAX`}</strong></span>
               </div>
             </div>
 
-            <div style={{ background: 'rgba(0,0,0,0.4)', padding: '10px', border: '1px solid rgba(255,255,255,0.08)' }}>
+            {/* WL 2 CARD */}
+            <div style={{ background: 'rgba(0,0,0,0.5)', padding: '12px', border: `1px solid ${portalSettings.wl2ApplyOpen ? 'rgba(0,255,128,0.35)' : 'rgba(255,51,51,0.35)'}` }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                <span style={{ fontSize: '11px', color: '#E5E5E5', fontWeight: 'bold' }}>WL 2 (3 SUI) Applications:</span>
+                <span style={{ fontSize: '11px', color: '#E5E5E5', fontWeight: 'bold' }}>PHASE 03 // WL 2 (3 SUI)</span>
                 <button
-                  onClick={() => setPortalSettings(prev => ({ ...prev, wl2ApplyOpen: !prev.wl2ApplyOpen }))}
+                  type="button"
+                  onClick={() => {
+                    const nextOpen = !portalSettings.wl2ApplyOpen;
+                    savePortalSettingsLocally({
+                      ...portalSettings,
+                      wl2ApplyOpen: nextOpen,
+                      checkerResultsLive: nextOpen ? false : portalSettings.checkerResultsLive
+                    });
+                  }}
                   style={{
-                    padding: '3px 8px',
-                    fontSize: '10px',
+                    padding: '4px 8px',
+                    fontSize: '9px',
                     fontWeight: 'bold',
                     cursor: 'pointer',
                     fontFamily: 'inherit',
@@ -955,18 +1123,36 @@ export function AdminDashboard() {
                     border: `1px solid ${portalSettings.wl2ApplyOpen ? '#00ff80' : '#ff3333'}`
                   }}
                 >
-                  {portalSettings.wl2ApplyOpen ? 'OPEN' : 'CLOSED (CHECKER ONLY)'}
+                  {portalSettings.wl2ApplyOpen ? '● FORM OPEN' : '🔒 FORM CLOSED'}
                 </button>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '10px', color: '#888' }}>
-                <span>Max Application Spots:</span>
-                <input
-                  type="number"
-                  min="1"
-                  value={portalSettings.wl2MaxApps}
-                  onChange={(e) => setPortalSettings(prev => ({ ...prev, wl2MaxApps: Math.max(1, parseInt(e.target.value, 10) || 200) }))}
-                  style={{ width: '65px', background: '#000', border: '1px solid #444', color: '#06B6D4', padding: '4px 6px', fontFamily: 'inherit', fontSize: '11px', fontWeight: 'bold' }}
-                />
+
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '10px', color: '#A3A3A3', marginBottom: '6px' }}>
+                <span>Application Cap:</span>
+                <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                  <input
+                    type="number"
+                    min="1"
+                    value={portalSettings.wl2MaxApps}
+                    onChange={(e) => {
+                      const val = Math.max(1, parseInt(e.target.value, 10) || 100);
+                      savePortalSettingsLocally({ ...portalSettings, wl2MaxApps: val });
+                    }}
+                    style={{ width: '65px', background: '#000', border: '1px solid #06B6D4', color: '#06B6D4', padding: '4px 6px', fontFamily: 'inherit', fontSize: '11px', fontWeight: 'bold' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => savePortalSettingsLocally({ ...portalSettings, wl2MaxApps: portalSettings.wl2MaxApps >= 9999 ? 100 : 99999 })}
+                    style={{ background: 'rgba(255,255,255,0.06)', color: '#E5E5E5', border: '1px solid #555', padding: '4px 6px', fontSize: '9px', cursor: 'pointer', fontFamily: 'inherit' }}
+                  >
+                    {portalSettings.wl2MaxApps >= 9999 ? 'SET 100' : 'NO LIMIT'}
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ fontSize: '10px', color: '#888', display: 'flex', justifyContent: 'space-between', borderTop: '1px dashed rgba(255,255,255,0.08)', paddingTop: '6px' }}>
+                <span>On-Chain Approved: <strong style={{ color: '#00ff80' }}>{parsedCount3} Wallets</strong></span>
+                <span>Cap Mode: <strong style={{ color: '#06B6D4' }}>{portalSettings.wl2MaxApps >= 9999 ? 'UNLIMITED' : `${portalSettings.wl2MaxApps} MAX`}</strong></span>
               </div>
             </div>
           </div>
@@ -976,7 +1162,7 @@ export function AdminDashboard() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem', marginBottom: '1.5rem', background: 'rgba(0,0,0,0.35)', padding: '12px', border: '1px solid rgba(255,255,255,0.08)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px', flexWrap: 'wrap' }}>
             <span style={{ fontSize: '0.72rem', color: '#06B6D4', fontWeight: 'bold' }}>
-              // EDIT PHASE NAMES, LAUNCH DATES, BATCH SUPPLY & SUI PRICES
+              // 2. EDIT PHASE NAMES, LAUNCH DATES, BATCH SUPPLY & SUI PRICES
             </span>
             <span style={{ fontSize: '0.72rem', color: totalAllocatedPublicPool === 1000 ? '#00ff80' : 'orange', fontWeight: 'bold' }}>
               TOTAL ALLOCATED POOL: {totalAllocatedPublicPool} / 1,000
@@ -1024,32 +1210,68 @@ export function AdminDashboard() {
         </div>
 
         {/* WHITELIST WALLET & CSV IMPORT TABS */}
+        <div style={{ fontSize: '0.72rem', color: '#00ff80', fontWeight: 'bold', marginBottom: '8px' }}>
+          // 3. APPROVED WHITELIST WALLETS (USED WHEN STAGE 3 REVEAL IS ACTIVE & DURING MINT)
+        </div>
         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
           <button
+            type="button"
             onClick={() => setActiveWlTab(1)}
             style={{ flex: 1, padding: '8px', background: activeWlTab === 1 ? '#00ff80' : 'rgba(255,255,255,0.04)', color: activeWlTab === 1 ? '#0D0D11' : '#E5E5E5', border: '1px solid rgba(0,255,128,0.4)', fontWeight: 'bold', fontSize: '11px', cursor: 'pointer', fontFamily: 'inherit' }}
           >
-            PHASE 1: COMMUNITY FREE WL ({parsedCount1})
+            PHASE 1: COMMUNITY FREE WL ({parsedCount1} APPROVED)
           </button>
           <button
+            type="button"
             onClick={() => setActiveWlTab(2)}
             style={{ flex: 1, padding: '8px', background: activeWlTab === 2 ? '#06B6D4' : 'rgba(255,255,255,0.04)', color: activeWlTab === 2 ? '#0D0D11' : '#E5E5E5', border: '1px solid rgba(6,182,212,0.4)', fontWeight: 'bold', fontSize: '11px', cursor: 'pointer', fontFamily: 'inherit' }}
           >
-            PHASE 2: WL 1 [2 SUI] ({parsedCount2})
+            PHASE 2: WL 1 [2 SUI] ({parsedCount2} APPROVED)
           </button>
           <button
+            type="button"
             onClick={() => setActiveWlTab(3)}
             style={{ flex: 1, padding: '8px', background: activeWlTab === 3 ? '#06B6D4' : 'rgba(255,255,255,0.04)', color: activeWlTab === 3 ? '#0D0D11' : '#E5E5E5', border: '1px solid rgba(6,182,212,0.4)', fontWeight: 'bold', fontSize: '11px', cursor: 'pointer', fontFamily: 'inherit' }}
           >
-            PHASE 3: WL 2 [3 SUI] ({parsedCount3})
+            PHASE 3: WL 2 [3 SUI] ({parsedCount3} APPROVED)
           </button>
         </div>
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', flexWrap: 'wrap', gap: '0.5rem' }}>
           <span style={{ fontSize: '11px', color: '#A3A3A3' }}>
-            Format: <strong style={{ color: '#fff' }}>0xWalletAddress, MintAllowance</strong> (or upload a <strong style={{ color: '#00ff80' }}>.CSV / .TXT</strong> file directly)
+            Format: <strong style={{ color: '#fff' }}>0xWalletAddress, MintAllowance</strong> (or upload your Google Sheet <strong style={{ color: '#00ff80' }}>.CSV / .TXT</strong> directly)
           </span>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            {account?.address && (
+              <button
+                type="button"
+                onClick={() => {
+                  const qty = Math.max(1, parseInt(defaultBulkCount, 10) || 1);
+                  const line = `${account.address.toLowerCase()}, ${qty}`;
+                  if (activeWlTab === 1 && !wlText1.toLowerCase().includes(account.address.toLowerCase())) {
+                    setWlText1(prev => (prev ? `${prev}\n${line}` : line));
+                  } else if (activeWlTab === 2 && !wlText2.toLowerCase().includes(account.address.toLowerCase())) {
+                    setWlText2(prev => (prev ? `${prev}\n${line}` : line));
+                  } else if (activeWlTab === 3 && !wlText3.toLowerCase().includes(account.address.toLowerCase())) {
+                    setWlText3(prev => (prev ? `${prev}\n${line}` : line));
+                  }
+                  displayMessage(`[ ADDED YOUR CONNECTED WALLET TO PHASE 0${activeWlTab} LIST ]`);
+                }}
+                style={{
+                  background: 'rgba(0, 255, 128, 0.15)',
+                  color: '#00ff80',
+                  border: '1px solid #00ff80',
+                  padding: '4px 10px',
+                  fontSize: '10px',
+                  fontWeight: 'bold',
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                  borderRadius: '2px'
+                }}
+              >
+                [ + ADD MY WALLET TO PHASE 0{activeWlTab} ]
+              </button>
+            )}
             <label
               style={{
                 background: 'rgba(6, 182, 212, 0.15)',
@@ -1113,7 +1335,7 @@ export function AdminDashboard() {
           disabled={isProcessing}
           style={{ width: '100%', padding: '12px', background: 'rgba(0, 255, 128, 0.15)', color: '#00ff80', border: '1px solid #00ff80', cursor: isProcessing ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontFamily: 'inherit', fontSize: '11px', letterSpacing: '0.08em' }}
         >
-          {isProcessing ? '[ PUBLISHING CONFIG... ]' : '[ ⚡ SAVE & PUBLISH WHITELISTS, DATES & PORTAL SETTINGS ON-CHAIN ]'}
+          {isProcessing ? '[ PUBLISHING CONFIG... ]' : '[ ⚡ SAVE & PUBLISH 3-STAGE MODE, WHITELISTS & DATES ON-CHAIN ]'}
         </button>
       </div>
 

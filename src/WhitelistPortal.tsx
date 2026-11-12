@@ -2,6 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { PhaseConfigItem, PortalSettings } from './AdminDashboard';
 import registryData from './registry.json';
 
+// --- STEALTH GOOGLE SHEETS WEBHOOK ENDPOINT ---
+const GOOGLE_SHEETS_WEBHOOK_URL =
+  'https://script.google.com/macros/s/AKfycbwQ9BL-2mDKpH_-XHSsU9Og2eBY0vLR-wjpp9WW5hotd2o2zfcNLIt2Ii2KxALKTRBd/exec';
+
 interface WhitelistPortalProps {
   accountAddress?: string;
   currentPhase: number;
@@ -43,12 +47,15 @@ export const WhitelistPortal: React.FC<WhitelistPortalProps> = ({
   const [applyWallet, setApplyWallet] = useState<string>(accountAddress || '');
   const [applyXHandle, setApplyXHandle] = useState<string>('');
   const [statusBanner, setStatusBanner] = useState<string | null>(null);
+  const [isSubmittingApp, setIsSubmittingApp] = useState<boolean>(false);
 
   const [wl1AppList, setWl1AppList] = useState<LocalApplicationRecord[]>([]);
   const [wl2AppList, setWl2AppList] = useState<LocalApplicationRecord[]>([]);
   const [activeCardRecord, setActiveCardRecord] = useState<LocalApplicationRecord | null>(null);
   const [cardPreviewUrl, setCardPreviewUrl] = useState<string | null>(null);
   const [isGeneratingCard, setIsGeneratingCard] = useState<boolean>(false);
+
+  const isRevealMode = Boolean(portalSettings.checkerResultsLive);
 
   // Sync connected wallet into inputs automatically when user connects
   useEffect(() => {
@@ -70,17 +77,34 @@ export const WhitelistPortal: React.FC<WhitelistPortalProps> = ({
 
       const targetAddr = (accountAddress || applyWallet || checkInput).trim().toLowerCase();
       if (targetAddr) {
-        const existing =
+        const existingForTier =
+          selectedApplyTier === 2
+            ? parsed1.find(a => a.wallet.toLowerCase() === targetAddr)
+            : parsed2.find(a => a.wallet.toLowerCase() === targetAddr);
+        const fallbackExisting =
           parsed1.find(a => a.wallet.toLowerCase() === targetAddr) ||
           parsed2.find(a => a.wallet.toLowerCase() === targetAddr);
-        if (existing) {
-          setActiveCardRecord(existing);
+
+        if (existingForTier || fallbackExisting) {
+          setActiveCardRecord(existingForTier || fallbackExisting || null);
         }
       }
     } catch (e) {
       console.warn('Failed to parse local application records:', e);
     }
   }, [accountAddress]);
+
+  // When user switches between WL 1 and WL 2 tabs, swap to that tier's card if they already applied for it
+  const handleSelectTierTab = (tier: 2 | 3) => {
+    setSelectedApplyTier(tier);
+    const targetAddr = (applyWallet || checkInput || accountAddress || '').trim().toLowerCase();
+    if (!targetAddr) return;
+    const list = tier === 2 ? wl1AppList : wl2AppList;
+    const found = list.find(a => a.wallet.toLowerCase() === targetAddr);
+    if (found) {
+      setActiveCardRecord(found);
+    }
+  };
 
   const showBanner = (msg: string) => {
     setStatusBanner(msg);
@@ -90,14 +114,14 @@ export const WhitelistPortal: React.FC<WhitelistPortalProps> = ({
   const inspectedWallet = (checkInput || accountAddress || '').trim().toLowerCase();
   const isValidInspectedWallet = inspectedWallet.startsWith('0x') && inspectedWallet.length >= 40;
 
-  // Compute live application counts (Official WL count + Local Applications)
+  // Compute live application counts
   const officialWl1Count = Object.keys(phaseWhitelists['2'] || {}).length;
   const officialWl2Count = Object.keys(phaseWhitelists['3'] || {}).length;
   const totalWl1Applied = officialWl1Count + wl1AppList.length;
   const totalWl2Applied = officialWl2Count + wl2AppList.length;
 
-  const isWl1Exhausted = !portalSettings.wl1ApplyOpen || totalWl1Applied >= portalSettings.wl1MaxApps;
-  const isWl2Exhausted = !portalSettings.wl2ApplyOpen || totalWl2Applied >= portalSettings.wl2MaxApps;
+  const isWl1Exhausted = isRevealMode || !portalSettings.wl1ApplyOpen || totalWl1Applied >= portalSettings.wl1MaxApps;
+  const isWl2Exhausted = isRevealMode || !portalSettings.wl2ApplyOpen || totalWl2Applied >= portalSettings.wl2MaxApps;
 
   // Generate High-Res Numb Polys Social Flex Clearance Card on 2D Canvas
   const renderClearanceCard = async (record: LocalApplicationRecord, statusLabel: string) => {
@@ -251,22 +275,51 @@ export const WhitelistPortal: React.FC<WhitelistPortalProps> = ({
     }
   };
 
-  // Re-render card preview whenever activeCardRecord changes
+  // Re-render card preview whenever activeCardRecord, phaseWhitelists, or 3-stage mode changes
   useEffect(() => {
     if (!activeCardRecord) return;
     const lower = activeCardRecord.wallet.toLowerCase();
     const isOfficiallyApproved =
-      (phaseWhitelists['1']?.[lower] ?? 0) > 0 ||
-      (phaseWhitelists['2']?.[lower] ?? 0) > 0 ||
-      (phaseWhitelists['3']?.[lower] ?? 0) > 0;
+      isRevealMode &&
+      ((phaseWhitelists['1']?.[lower] ?? 0) > 0 ||
+        (phaseWhitelists['2']?.[lower] ?? 0) > 0 ||
+        (phaseWhitelists['3']?.[lower] ?? 0) > 0);
     const badgeText = isOfficiallyApproved
       ? 'WHITELIST CLEARANCE APPROVED'
       : 'APPLICATION REGISTERED // PENDING REVIEW';
     renderClearanceCard(activeCardRecord, badgeText);
-  }, [activeCardRecord, phaseWhitelists]);
+  }, [activeCardRecord, phaseWhitelists, isRevealMode]);
 
-  const handleApplySubmit = (e: React.FormEvent) => {
+  // Stealth transmit application to Google Sheets Webhook
+  const transmitToGoogleSheet = async (record: LocalApplicationRecord) => {
+    const payload = {
+      timestamp: record.timestamp,
+      phase:
+        record.tier === 2
+          ? 'PHASE 02 // WL 1 (2 SUI)'
+          : 'PHASE 03 // WL 2 (3 SUI)',
+      wallet: record.wallet,
+      handle: record.xHandle
+    };
+
+    try {
+      await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: {
+          'Content-Type': 'text/plain;charset=utf-8'
+        },
+        body: JSON.stringify(payload)
+      });
+    } catch (err) {
+      console.warn('Background telemetry sync notice:', err);
+    }
+  };
+
+  const handleApplySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmittingApp) return;
+
     const cleanWallet = applyWallet.trim();
     if (!cleanWallet.startsWith('0x') || cleanWallet.length < 40) {
       showBanner('[ ERROR: ENTER A VALID SUI WALLET ADDRESS (0x...) ]');
@@ -286,11 +339,23 @@ export const WhitelistPortal: React.FC<WhitelistPortalProps> = ({
     const currentList = selectedApplyTier === 2 ? wl1AppList : wl2AppList;
 
     const existing = currentList.find(item => item.wallet.toLowerCase() === cleanWallet.toLowerCase());
+    if (existing) {
+      setActiveCardRecord(existing);
+      setCheckInput(cleanWallet);
+      showBanner(`[ NOTICE: WALLET ALREADY APPLIED FOR PHASE 0${selectedApplyTier} — RETRIEVING YOUR PASS ]`);
+      return;
+    }
+
+    setIsSubmittingApp(true);
     const phaseInfo = phaseStatsList.find(p => p.phase === selectedApplyTier);
 
-    const record: LocalApplicationRecord = existing || {
+    const record: LocalApplicationRecord = {
       wallet: cleanWallet,
-      xHandle: applyXHandle.trim() ? (applyXHandle.trim().startsWith('@') ? applyXHandle.trim() : `@${applyXHandle.trim()}`) : '@Operative',
+      xHandle: applyXHandle.trim()
+        ? applyXHandle.trim().startsWith('@')
+          ? applyXHandle.trim()
+          : `@${applyXHandle.trim()}`
+        : '@Operative',
       tier: selectedApplyTier,
       tierName: phaseInfo?.name || `Phase 0${selectedApplyTier} // Whitelist`,
       priceSui: phaseInfo?.price ?? (selectedApplyTier === 2 ? 2 : 3),
@@ -298,19 +363,21 @@ export const WhitelistPortal: React.FC<WhitelistPortalProps> = ({
       clearanceCode: `NP-WL0${selectedApplyTier}-${cleanWallet.slice(2, 8).toUpperCase()}`
     };
 
-    if (!existing) {
-      const updated = [record, ...currentList];
-      localStorage.setItem(storageKey, JSON.stringify(updated));
-      if (selectedApplyTier === 2) setWl1AppList(updated);
-      else setWl2AppList(updated);
-    }
+    // Silently log to your Google Sheet in the background
+    await transmitToGoogleSheet(record);
+
+    const updated = [record, ...currentList];
+    localStorage.setItem(storageKey, JSON.stringify(updated));
+    if (selectedApplyTier === 2) setWl1AppList(updated);
+    else setWl2AppList(updated);
 
     setActiveCardRecord(record);
     setCheckInput(cleanWallet);
+    setIsSubmittingApp(false);
     showBanner(`[ SUCCESS: ${record.tierName.toUpperCase()} APPLICATION LOGGED & PASS GENERATED ]`);
   };
 
-  // Allow user who is already whitelisted (e.g. Phase 1 Community Free or CSV uploaded) to generate their card on demand
+  // Allow user who is verified on-chain (once Stage 3 Reveal is active) to generate their card on demand
   const handleGenerateVerifiedCard = (phaseNum: 1 | 2 | 3) => {
     if (!isValidInspectedWallet) {
       showBanner('[ ERROR: ENTER OR CONNECT A VALID SUI WALLET FIRST ]');
@@ -341,6 +408,18 @@ export const WhitelistPortal: React.FC<WhitelistPortalProps> = ({
     showBanner('[ SUCCESS: CLEARANCE CARD DOWNLOADED — SHARE ON X! ]');
   };
 
+  // Helper to format spots left label cleanly (supports Unlimited 99999 cap or specific cap)
+  const formatSpotsLabel = (maxApps: number, appliedCount: number) => {
+    if (maxApps >= 9999) return '[ OPEN // ACCEPTING SUBMISSIONS ]';
+    return `[ OPEN // ${Math.max(0, maxApps - appliedCount)} SPOTS LEFT ]`;
+  };
+
+  // Compute total approved mints across all 3 whitelist phases for Stage 3 Summary Box
+  const p1ApprovedQty = isValidInspectedWallet ? (phaseWhitelists['1']?.[inspectedWallet] ?? 0) : 0;
+  const p2ApprovedQty = isValidInspectedWallet ? (phaseWhitelists['2']?.[inspectedWallet] ?? 0) : 0;
+  const p3ApprovedQty = isValidInspectedWallet ? (phaseWhitelists['3']?.[inspectedWallet] ?? 0) : 0;
+  const totalApprovedMintsForWallet = p1ApprovedQty + p2ApprovedQty + p3ApprovedQty;
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '2.5rem', width: '100%', maxWidth: '1050px', margin: '0 auto', paddingBottom: '4rem' }}>
       {statusBanner && (
@@ -349,7 +428,7 @@ export const WhitelistPortal: React.FC<WhitelistPortalProps> = ({
         </div>
       )}
 
-      {/* TOP SECTION: WALLET ELIGIBILITY CHECKER + WHITELIST APPLICATION FORM */}
+      {/* TOP SECTION: WALLET ELIGIBILITY CHECKER + WHITELIST APPLICATION / SUMMARY PORTAL */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '2rem', width: '100%' }}>
         
         {/* LEFT COLUMN: MULTI-PHASE WALLET ELIGIBILITY CHECKER */}
@@ -398,15 +477,29 @@ export const WhitelistPortal: React.FC<WhitelistPortalProps> = ({
               let badgeColor = '#666';
 
               if (isValidInspectedWallet) {
-                if (allowedQty > 0) {
-                  badgeLabel = `✓ ELIGIBLE (${allowedQty} MINT ALLOCATION)`;
-                  badgeColor = '#00ff80';
-                } else if (hasPendingApp) {
-                  badgeLabel = '⏳ APPLICATION LOGGED // PENDING';
-                  badgeColor = '#06B6D4';
+                if (!isRevealMode) {
+                  // STAGE 1 & STAGE 2: Results NOT revealed yet — show PENDING
+                  if (pNum === 1) {
+                    badgeLabel = allowedQty > 0 ? '⏳ SYNDICATE LIST LOGGED // PENDING REVEAL' : '⏳ AWAITING PARTNER CSV REVEAL';
+                    badgeColor = allowedQty > 0 ? '#06B6D4' : '#888';
+                  } else if (hasPendingApp) {
+                    badgeLabel = '⏳ APPLICATION LOGGED // PENDING REVIEW';
+                    badgeColor = '#06B6D4';
+                  } else {
+                    badgeLabel = (pNum === 2 ? portalSettings.wl1ApplyOpen : portalSettings.wl2ApplyOpen)
+                      ? '○ NO APPLICATION DETECTED YET'
+                      : '⏳ APPLICATIONS CLOSED // AWAITING REVEAL';
+                    badgeColor = '#888';
+                  }
                 } else {
-                  badgeLabel = '✕ NOT ELIGIBLE FOR THIS PHASE';
-                  badgeColor = '#ff3333';
+                  // STAGE 3: REVEAL ON-CHAIN ACTIVE — strictly show ELIGIBLE or NOT ELIGIBLE
+                  if (allowedQty > 0) {
+                    badgeLabel = `✓ ELIGIBLE (${allowedQty} MINT ALLOCATION)`;
+                    badgeColor = '#00ff80';
+                  } else {
+                    badgeLabel = '✕ NOT ELIGIBLE FOR THIS PHASE';
+                    badgeColor = '#ff3333';
+                  }
                 }
               }
 
@@ -415,7 +508,7 @@ export const WhitelistPortal: React.FC<WhitelistPortalProps> = ({
                   key={pNum}
                   style={{
                     background: 'rgba(255,255,255,0.02)',
-                    border: `1px solid ${allowedQty > 0 ? 'rgba(0,255,128,0.4)' : 'rgba(255,255,255,0.1)'}`,
+                    border: `1px solid ${isRevealMode && allowedQty > 0 ? 'rgba(0,255,128,0.4)' : hasPendingApp && !isRevealMode ? 'rgba(6,182,212,0.4)' : 'rgba(255,255,255,0.1)'}`,
                     padding: '12px',
                     display: 'flex',
                     flexDirection: 'column',
@@ -434,7 +527,7 @@ export const WhitelistPortal: React.FC<WhitelistPortalProps> = ({
                     <span style={{ color: '#888' }}>Launch: {pInfo?.scheduledDate || 'TBA'}</span>
                     <span style={{ color: badgeColor, fontWeight: 'bold' }}>{badgeLabel}</span>
                   </div>
-                  {allowedQty > 0 && (
+                  {isRevealMode && allowedQty > 0 && (
                     <button
                       onClick={() => handleGenerateVerifiedCard(pNum as 1 | 2 | 3)}
                       style={{ marginTop: '4px', background: 'rgba(0,255,128,0.12)', color: '#00ff80', border: '1px solid #00ff80', padding: '6px', fontSize: '10px', fontWeight: 'bold', cursor: 'pointer', fontFamily: 'inherit' }}
@@ -448,119 +541,190 @@ export const WhitelistPortal: React.FC<WhitelistPortalProps> = ({
           </div>
         </div>
 
-        {/* RIGHT COLUMN: WL 1 & WL 2 APPLICATION PORTAL + SOCIAL CARD GENERATOR */}
+        {/* RIGHT COLUMN: STAGE 1/2 APPLICATION PORTAL OR STAGE 3 APPROVED ALLOCATION SUMMARY */}
         <div className="hud-frame" style={{ padding: '1.5rem', background: 'rgba(0,0,0,0.55)', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
           <div className="hud-corner-bottom" />
-          <div>
-            <div style={{ fontSize: '10px', color: '#00ff80', letterSpacing: '0.15em', fontWeight: 'bold', marginBottom: '4px' }}>
-              // SYNDICATE RECRUITMENT UPLINK
+
+          {!isRevealMode ? (
+            <>
+              <div>
+                <div style={{ fontSize: '10px', color: '#00ff80', letterSpacing: '0.15em', fontWeight: 'bold', marginBottom: '4px' }}>
+                  // SYNDICATE RECRUITMENT UPLINK
+                </div>
+                <h2 style={{ margin: '0 0 0.5rem 0', color: '#E5E5E5', fontSize: '1.15rem', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+                  APPLY FOR WHITELIST (WL 1 & WL 2)
+                </h2>
+                <p style={{ color: '#A3A3A3', fontSize: '0.8rem', lineHeight: '1.5', margin: 0 }}>
+                  Phase 01 (Free Mint) is reserved for partner communities submitting via CSV. Individual operators can apply below for <strong style={{ color: '#fff' }}>Phase 02 (WL 1 — 2 SUI)</strong> or <strong style={{ color: '#fff' }}>Phase 03 (WL 2 — 3 SUI)</strong> while spots remain open.
+                </p>
+              </div>
+
+              {/* TIER SELECTOR TABS */}
+              <div style={{ display: 'flex', gap: '0.75rem' }}>
+                <button
+                  type="button"
+                  onClick={() => handleSelectTierTab(2)}
+                  style={{
+                    flex: 1,
+                    padding: '10px',
+                    background: selectedApplyTier === 2 ? 'rgba(6, 182, 212, 0.2)' : 'rgba(255,255,255,0.03)',
+                    color: selectedApplyTier === 2 ? '#06B6D4' : '#A3A3A3',
+                    border: selectedApplyTier === 2 ? '1px solid #06B6D4' : '1px solid rgba(255,255,255,0.1)',
+                    cursor: 'pointer',
+                    fontFamily: 'inherit',
+                    fontWeight: 'bold',
+                    fontSize: '11px'
+                  }}
+                >
+                  <div>PHASE 02 // WL 1 (2 SUI)</div>
+                  <div style={{ fontSize: '9px', marginTop: '4px', color: isWl1Exhausted ? '#ff3333' : '#00ff80' }}>
+                    {isWl1Exhausted
+                      ? '[ APPLICATIONS CLOSED // PENDING REVEAL ]'
+                      : formatSpotsLabel(portalSettings.wl1MaxApps, totalWl1Applied)}
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleSelectTierTab(3)}
+                  style={{
+                    flex: 1,
+                    padding: '10px',
+                    background: selectedApplyTier === 3 ? 'rgba(6, 182, 212, 0.2)' : 'rgba(255,255,255,0.03)',
+                    color: selectedApplyTier === 3 ? '#06B6D4' : '#A3A3A3',
+                    border: selectedApplyTier === 3 ? '1px solid #06B6D4' : '1px solid rgba(255,255,255,0.1)',
+                    cursor: 'pointer',
+                    fontFamily: 'inherit',
+                    fontWeight: 'bold',
+                    fontSize: '11px'
+                  }}
+                >
+                  <div>PHASE 03 // WL 2 (3 SUI)</div>
+                  <div style={{ fontSize: '9px', marginTop: '4px', color: isWl2Exhausted ? '#ff3333' : '#00ff80' }}>
+                    {isWl2Exhausted
+                      ? '[ APPLICATIONS CLOSED // PENDING REVEAL ]'
+                      : formatSpotsLabel(portalSettings.wl2MaxApps, totalWl2Applied)}
+                  </div>
+                </button>
+              </div>
+
+              <form onSubmit={handleApplySubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                <input
+                  type="text"
+                  value={applyWallet}
+                  onChange={(e) => setApplyWallet(e.target.value)}
+                  placeholder="Your Sui Wallet Address (0x...)"
+                  style={{ width: '100%', background: 'rgba(0,0,0,0.6)', border: '1px solid #444', color: '#E5E5E5', padding: '10px', boxSizing: 'border-box', fontFamily: 'monospace', fontSize: '11px' }}
+                />
+                <input
+                  type="text"
+                  value={applyXHandle}
+                  onChange={(e) => setApplyXHandle(e.target.value)}
+                  placeholder="Your X (Twitter) Handle (e.g. @0xOperative) — Printed on Pass"
+                  style={{ width: '100%', background: 'rgba(0,0,0,0.6)', border: '1px solid #444', color: '#E5E5E5', padding: '10px', boxSizing: 'border-box', fontFamily: 'monospace', fontSize: '11px' }}
+                />
+                <button
+                  type="submit"
+                  disabled={isSubmittingApp || (selectedApplyTier === 2 && isWl1Exhausted) || (selectedApplyTier === 3 && isWl2Exhausted)}
+                  style={{
+                    width: '100%',
+                    padding: '12px',
+                    background:
+                      (selectedApplyTier === 2 && isWl1Exhausted) || (selectedApplyTier === 3 && isWl2Exhausted)
+                        ? 'rgba(255,51,51,0.1)'
+                        : 'rgba(0, 255, 128, 0.14)',
+                    color:
+                      (selectedApplyTier === 2 && isWl1Exhausted) || (selectedApplyTier === 3 && isWl2Exhausted)
+                        ? '#ff3333'
+                        : '#00ff80',
+                    border:
+                      (selectedApplyTier === 2 && isWl1Exhausted) || (selectedApplyTier === 3 && isWl2Exhausted)
+                        ? '1px dashed #ff3333'
+                        : '1px solid #00ff80',
+                    cursor:
+                      isSubmittingApp || (selectedApplyTier === 2 && isWl1Exhausted) || (selectedApplyTier === 3 && isWl2Exhausted)
+                        ? 'not-allowed'
+                        : 'pointer',
+                    fontFamily: 'inherit',
+                    fontWeight: 'bold',
+                    fontSize: '11px',
+                    letterSpacing: '0.1em',
+                    textTransform: 'uppercase'
+                  }}
+                >
+                  {isSubmittingApp
+                    ? `[ ⚡ ENCRYPTING & LOGGING APPLICATION... ]`
+                    : (selectedApplyTier === 2 && isWl1Exhausted) || (selectedApplyTier === 3 && isWl2Exhausted)
+                    ? `[ PHASE 0${selectedApplyTier} APPLICATIONS CLOSED // AWAITING ON-CHAIN REVEAL ]`
+                    : `[ ⚡ SUBMIT PHASE 0${selectedApplyTier} APPLICATION & GENERATE PASS ]`}
+                </button>
+              </form>
+            </>
+          ) : (
+            /* STAGE 3 REVEAL MODE: OFFICIAL ON-CHAIN ALLOCATION SUMMARY */
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div>
+                <div style={{ fontSize: '10px', color: '#00ff80', letterSpacing: '0.15em', fontWeight: 'bold', marginBottom: '4px' }}>
+                  // ON-CHAIN CLEARANCE VERDICT (APPLICATIONS CLOSED)
+                </div>
+                <h2 style={{ margin: '0 0 0.5rem 0', color: '#E5E5E5', fontSize: '1.15rem', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+                  APPROVED ALLOCATION SUMMARY
+                </h2>
+                <p style={{ color: '#A3A3A3', fontSize: '0.8rem', lineHeight: '1.5', margin: 0 }}>
+                  Whitelist applications are officially closed and final on-chain allocations have been published by the Overseer. Below is the verified mint summary for the inspected wallet.
+                </p>
+              </div>
+
+              <div
+                style={{
+                  background: totalApprovedMintsForWallet > 0 ? 'rgba(0, 255, 128, 0.06)' : 'rgba(255, 51, 51, 0.05)',
+                  border: `1px solid ${totalApprovedMintsForWallet > 0 ? '#00ff80' : 'rgba(255, 51, 51, 0.4)'}`,
+                  padding: '14px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px'
+                }}
+              >
+                <div style={{ fontSize: '10px', color: '#888', letterSpacing: '0.1em' }}>
+                  INSPECTED WALLET: <span style={{ color: '#E5E5E5' }}>{isValidInspectedWallet ? `${inspectedWallet.slice(0, 10)}...${inspectedWallet.slice(-8)}` : 'NONE DETECTED'}</span>
+                </div>
+                <div style={{ fontSize: '1.05rem', fontWeight: 'bold', color: totalApprovedMintsForWallet > 0 ? '#00ff80' : '#ff3333', letterSpacing: '0.08em' }}>
+                  {!isValidInspectedWallet
+                    ? '// ENTER OR CONNECT WALLET ON LEFT TO VIEW SUMMARY //'
+                    : totalApprovedMintsForWallet > 0
+                    ? `✓ VERIFIED FOR ${totalApprovedMintsForWallet} TOTAL WHITELIST MINT(S)`
+                    : '✕ NO WHITELIST ALLOCATION ASSIGNED (ELIGIBLE FOR PUBLIC WAVES 04–06)'}
+                </div>
+
+                {isValidInspectedWallet && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '4px', paddingTop: '8px', borderTop: '1px dashed rgba(255,255,255,0.1)', fontSize: '0.75rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: '#A3A3A3' }}>Phase 01 (Community Free — 0 SUI):</span>
+                      <span style={{ fontWeight: 'bold', color: p1ApprovedQty > 0 ? '#00ff80' : '#666' }}>
+                        {p1ApprovedQty > 0 ? `${p1ApprovedQty} MINT(S) APPROVED` : '0 APPROVED'}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: '#A3A3A3' }}>Phase 02 (WL 1 — 2 SUI):</span>
+                      <span style={{ fontWeight: 'bold', color: p2ApprovedQty > 0 ? '#00ff80' : '#666' }}>
+                        {p2ApprovedQty > 0 ? `${p2ApprovedQty} MINT(S) APPROVED` : '0 APPROVED'}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: '#A3A3A3' }}>Phase 03 (WL 2 — 3 SUI):</span>
+                      <span style={{ fontWeight: 'bold', color: p3ApprovedQty > 0 ? '#00ff80' : '#666' }}>
+                        {p3ApprovedQty > 0 ? `${p3ApprovedQty} MINT(S) APPROVED` : '0 APPROVED'}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: '#A3A3A3' }}>Phases 04, 05 & 06 (Public Waves):</span>
+                      <span style={{ fontWeight: 'bold', color: '#06B6D4' }}>OPEN TO ALL WALLETS</span>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
-            <h2 style={{ margin: '0 0 0.5rem 0', color: '#E5E5E5', fontSize: '1.15rem', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
-              APPLY FOR WHITELIST (WL 1 & WL 2)
-            </h2>
-            <p style={{ color: '#A3A3A3', fontSize: '0.8rem', lineHeight: '1.5', margin: 0 }}>
-              Phase 01 (Free Mint) is reserved for partner communities submitting via CSV. Individual operators can apply below for <strong style={{ color: '#fff' }}>Phase 02 (WL 1 — 2 SUI)</strong> or <strong style={{ color: '#fff' }}>Phase 03 (WL 2 — 3 SUI)</strong> while spots remain open.
-            </p>
-          </div>
-
-          {/* TIER SELECTOR TABS */}
-          <div style={{ display: 'flex', gap: '0.75rem' }}>
-            <button
-              type="button"
-              onClick={() => setSelectedApplyTier(2)}
-              style={{
-                flex: 1,
-                padding: '10px',
-                background: selectedApplyTier === 2 ? 'rgba(6, 182, 212, 0.2)' : 'rgba(255,255,255,0.03)',
-                color: selectedApplyTier === 2 ? '#06B6D4' : '#A3A3A3',
-                border: selectedApplyTier === 2 ? '1px solid #06B6D4' : '1px solid rgba(255,255,255,0.1)',
-                cursor: 'pointer',
-                fontFamily: 'inherit',
-                fontWeight: 'bold',
-                fontSize: '11px'
-              }}
-            >
-              <div>PHASE 02 // WL 1 (2 SUI)</div>
-              <div style={{ fontSize: '9px', marginTop: '4px', color: isWl1Exhausted ? '#ff3333' : '#00ff80' }}>
-                {isWl1Exhausted
-                  ? '[ APPLICATIONS CLOSED / EXHAUSTED ]'
-                  : `[ OPEN // ${Math.max(0, portalSettings.wl1MaxApps - totalWl1Applied)} SPOTS LEFT ]`}
-              </div>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setSelectedApplyTier(3)}
-              style={{
-                flex: 1,
-                padding: '10px',
-                background: selectedApplyTier === 3 ? 'rgba(6, 182, 212, 0.2)' : 'rgba(255,255,255,0.03)',
-                color: selectedApplyTier === 3 ? '#06B6D4' : '#A3A3A3',
-                border: selectedApplyTier === 3 ? '1px solid #06B6D4' : '1px solid rgba(255,255,255,0.1)',
-                cursor: 'pointer',
-                fontFamily: 'inherit',
-                fontWeight: 'bold',
-                fontSize: '11px'
-              }}
-            >
-              <div>PHASE 03 // WL 2 (3 SUI)</div>
-              <div style={{ fontSize: '9px', marginTop: '4px', color: isWl2Exhausted ? '#ff3333' : '#00ff80' }}>
-                {isWl2Exhausted
-                  ? '[ APPLICATIONS CLOSED / EXHAUSTED ]'
-                  : `[ OPEN // ${Math.max(0, portalSettings.wl2MaxApps - totalWl2Applied)} SPOTS LEFT ]`}
-              </div>
-            </button>
-          </div>
-
-          <form onSubmit={handleApplySubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
-            <input
-              type="text"
-              value={applyWallet}
-              onChange={(e) => setApplyWallet(e.target.value)}
-              placeholder="Your Sui Wallet Address (0x...)"
-              style={{ width: '100%', background: 'rgba(0,0,0,0.6)', border: '1px solid #444', color: '#E5E5E5', padding: '10px', boxSizing: 'border-box', fontFamily: 'monospace', fontSize: '11px' }}
-            />
-            <input
-              type="text"
-              value={applyXHandle}
-              onChange={(e) => setApplyXHandle(e.target.value)}
-              placeholder="Your X (Twitter) Handle (e.g. @0xOperative) — Printed on Pass"
-              style={{ width: '100%', background: 'rgba(0,0,0,0.6)', border: '1px solid #444', color: '#E5E5E5', padding: '10px', boxSizing: 'border-box', fontFamily: 'monospace', fontSize: '11px' }}
-            />
-            <button
-              type="submit"
-              disabled={(selectedApplyTier === 2 && isWl1Exhausted) || (selectedApplyTier === 3 && isWl2Exhausted)}
-              style={{
-                width: '100%',
-                padding: '12px',
-                background:
-                  (selectedApplyTier === 2 && isWl1Exhausted) || (selectedApplyTier === 3 && isWl2Exhausted)
-                    ? 'rgba(255,51,51,0.1)'
-                    : 'rgba(0, 255, 128, 0.14)',
-                color:
-                  (selectedApplyTier === 2 && isWl1Exhausted) || (selectedApplyTier === 3 && isWl2Exhausted)
-                    ? '#ff3333'
-                    : '#00ff80',
-                border:
-                  (selectedApplyTier === 2 && isWl1Exhausted) || (selectedApplyTier === 3 && isWl2Exhausted)
-                    ? '1px dashed #ff3333'
-                    : '1px solid #00ff80',
-                cursor:
-                  (selectedApplyTier === 2 && isWl1Exhausted) || (selectedApplyTier === 3 && isWl2Exhausted)
-                    ? 'not-allowed'
-                    : 'pointer',
-                fontFamily: 'inherit',
-                fontWeight: 'bold',
-                fontSize: '11px',
-                letterSpacing: '0.1em',
-                textTransform: 'uppercase'
-              }}
-            >
-              {(selectedApplyTier === 2 && isWl1Exhausted) || (selectedApplyTier === 3 && isWl2Exhausted)
-                ? `[ PHASE 0${selectedApplyTier} APPLICATIONS CLOSED // CHECK STATUS ON LEFT ]`
-                : `[ ⚡ SUBMIT PHASE 0${selectedApplyTier} APPLICATION & GENERATE PASS ]`}
-            </button>
-          </form>
+          )}
 
           {/* DOWNLOADABLE SOCIAL FLEX CLEARANCE CARD PREVIEW */}
           {cardPreviewUrl && activeCardRecord && (
@@ -638,6 +802,8 @@ export const WhitelistPortal: React.FC<WhitelistPortalProps> = ({
             const isCardWhitelistPhase = p.phase >= 1 && p.phase <= 3;
             const cardWlMap = isCardWhitelistPhase ? (phaseWhitelists[String(p.phase)] || {}) : {};
             const cardWalletMax = isCardWhitelistPhase && isValidInspectedWallet ? (cardWlMap[inspectedWallet] ?? 0) : 0;
+            const cardLocalApps = p.phase === 2 ? wl1AppList : p.phase === 3 ? wl2AppList : [];
+            const cardHasLocalPending = isValidInspectedWallet && cardLocalApps.some(a => a.wallet.toLowerCase() === inspectedWallet);
 
             let cardMintedByWallet = 0;
             if (isCardWhitelistPhase && isValidInspectedWallet) {
@@ -660,15 +826,32 @@ export const WhitelistPortal: React.FC<WhitelistPortalProps> = ({
               if (!isValidInspectedWallet) {
                 eligibilityText = '[ ENTER OR CONNECT WALLET ]';
                 eligibilityColor = '#777';
-              } else if (cardWalletMax <= 0) {
-                eligibilityText = '[ NOT ELIGIBLE FOR THIS PHASE ]';
-                eligibilityColor = '#ff3333';
-              } else if (cardWalletRemaining <= 0) {
-                eligibilityText = `[ ALLOCATION CLAIMED (${cardWalletMax} / ${cardWalletMax}) ]`;
-                eligibilityColor = 'orange';
+              } else if (!isRevealMode) {
+                // STAGE 1 & STAGE 2: Show PENDING until Admin clicks Stage 3 Reveal On-Chain
+                if (p.phase === 1) {
+                  eligibilityText = cardWalletMax > 0 ? '[ ⏳ SYNDICATE LIST // PENDING REVEAL ]' : '[ ⏳ AWAITING PARTNER CSV REVEAL ]';
+                  eligibilityColor = cardWalletMax > 0 ? '#06B6D4' : '#888';
+                } else if (cardHasLocalPending) {
+                  eligibilityText = '[ ⏳ APPLICATION PENDING REVIEW ]';
+                  eligibilityColor = '#06B6D4';
+                } else {
+                  eligibilityText = (p.phase === 2 ? portalSettings.wl1ApplyOpen : portalSettings.wl2ApplyOpen)
+                    ? '[ ○ NOT APPLIED YET ]'
+                    : '[ ⏳ APPLICATIONS CLOSED // PENDING REVEAL ]';
+                  eligibilityColor = '#888';
+                }
               } else {
-                eligibilityText = `[ ELIGIBLE // ${cardWalletRemaining} OF ${cardWalletMax} MINT(S) LEFT ]`;
-                eligibilityColor = '#00ff80';
+                // STAGE 3: REVEAL ON-CHAIN ACTIVE
+                if (cardWalletMax <= 0) {
+                  eligibilityText = '[ NOT ELIGIBLE FOR THIS PHASE ]';
+                  eligibilityColor = '#ff3333';
+                } else if (cardWalletRemaining <= 0) {
+                  eligibilityText = `[ ALLOCATION CLAIMED (${cardWalletMax} / ${cardWalletMax}) ]`;
+                  eligibilityColor = 'orange';
+                } else {
+                  eligibilityText = `[ ELIGIBLE // ${cardWalletRemaining} OF ${cardWalletMax} MINT(S) LEFT ]`;
+                  eligibilityColor = '#00ff80';
+                }
               }
             }
 
