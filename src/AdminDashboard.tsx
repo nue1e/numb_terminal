@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   useCurrentAccount,
   useSignAndExecuteTransaction,
@@ -13,9 +13,27 @@ export interface PhaseConfigItem {
   name: string;
   price: number;
   mist: string;
+  allocation: number;
   isWhitelist: boolean;
   lore: string;
+  scheduledDate?: string;
 }
+
+export interface PortalSettings {
+  wl1ApplyOpen: boolean;
+  wl2ApplyOpen: boolean;
+  wl1MaxApps: number;
+  wl2MaxApps: number;
+  checkerResultsLive: boolean;
+}
+
+export const DEFAULT_PORTAL_SETTINGS: PortalSettings = {
+  wl1ApplyOpen: true,
+  wl2ApplyOpen: true,
+  wl1MaxApps: 150,
+  wl2MaxApps: 250,
+  checkerResultsLive: true
+};
 
 export const DEFAULT_PHASES: PhaseConfigItem[] = [
   {
@@ -24,8 +42,10 @@ export const DEFAULT_PHASES: PhaseConfigItem[] = [
     name: 'Phase 01 // The Vanguard (Community Free)',
     price: 0,
     mist: '0',
+    allocation: 100,
     isWhitelist: true,
-    lore: 'The genesis entry. Reserved strictly for whitelisted community operators.'
+    lore: 'The genesis entry. Reserved strictly for partner communities and early syndicate operators.',
+    scheduledDate: 'TBA // SYNDICATE WAVE'
   },
   {
     phase: 2,
@@ -33,8 +53,10 @@ export const DEFAULT_PHASES: PhaseConfigItem[] = [
     name: 'Phase 02 // The Recon Protocol (WL 1)',
     price: 2,
     mist: '2000000000',
+    allocation: 100,
     isWhitelist: true,
-    lore: 'First whitelist wave. Priority syndicate allocation at 2 SUI.'
+    lore: 'First whitelist wave. Priority syndicate allocation at 2 SUI.',
+    scheduledDate: 'TBA // PHASE 02'
   },
   {
     phase: 3,
@@ -42,8 +64,10 @@ export const DEFAULT_PHASES: PhaseConfigItem[] = [
     name: 'Phase 03 // The Iron Grid (WL 2)',
     price: 3,
     mist: '3000000000',
+    allocation: 100,
     isWhitelist: true,
-    lore: 'Second whitelist wave. Infrastructure expansion allocation at 3 SUI.'
+    lore: 'Second whitelist wave. Infrastructure expansion allocation at 3 SUI.',
+    scheduledDate: 'TBA // PHASE 03'
   },
   {
     phase: 4,
@@ -51,8 +75,10 @@ export const DEFAULT_PHASES: PhaseConfigItem[] = [
     name: 'Phase 04 // The Static Runners (Public 1)',
     price: 4,
     mist: '4000000000',
+    allocation: 200,
     isWhitelist: false,
-    lore: 'Public Wave I. Open terminal deployment until manually shifted by Overseer.'
+    lore: 'Public Wave I. Standard entry point as visibility scales across the grid.',
+    scheduledDate: 'TBA // PHASE 04'
   },
   {
     phase: 5,
@@ -60,8 +86,10 @@ export const DEFAULT_PHASES: PhaseConfigItem[] = [
     name: 'Phase 05 // The Obsidian Core (Public 2)',
     price: 5,
     mist: '5000000000',
+    allocation: 250,
     isWhitelist: false,
-    lore: 'Public Wave II. Open terminal deployment as supply contracts.'
+    lore: 'Public Wave II. Momentum accelerates as remaining construct supply contracts.',
+    scheduledDate: 'TBA // PHASE 05'
   },
   {
     phase: 6,
@@ -69,8 +97,10 @@ export const DEFAULT_PHASES: PhaseConfigItem[] = [
     name: 'Phase 06 // The Crimson Shift (Public 3)',
     price: 6,
     mist: '6000000000',
+    allocation: 250,
     isWhitelist: false,
-    lore: 'Public Wave III. Final public deployment tier on the Sui Mainnet.'
+    lore: 'Public Wave III. Final anomalies enter circulation on the Sui Mainnet.',
+    scheduledDate: 'TBA // PHASE 06'
   }
 ];
 
@@ -174,20 +204,20 @@ const suiRpc = {
   }
 };
 
-// Helper to parse multi-line "0xAddress, Mints" text into a clean Record<address, number>
-function parseAllocationText(rawText: string, defaultQty: number): Record<string, number> {
+export function parseAllocationText(rawText: string, defaultQty: number): Record<string, number> {
   const map: Record<string, number> = {};
   const lines = rawText.split(/\r?\n/);
   for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed) continue;
-    // Supports "0x123... 2" or "0x123..., 2" or "0x123...:2" or just "0x123..."
-    const parts = trimmed.split(/[\s,:;]+/).filter(Boolean);
-    const addr = parts[0]?.toLowerCase();
-    if (addr && addr.startsWith('0x') && addr.length >= 40) {
-      const parsedCount = parts[1] ? parseInt(parts[1], 10) : defaultQty;
-      map[addr] = !isNaN(parsedCount) && parsedCount > 0 ? parsedCount : defaultQty;
-    }
+    // Matches 0x... wallet addresses even inside multi-column CSV rows
+    const addrMatch = trimmed.match(/0x[a-fA-F0-9]{40,64}/);
+    if (!addrMatch) continue;
+    const addr = addrMatch[0].toLowerCase();
+    const afterAddr = trimmed.slice(trimmed.indexOf(addrMatch[0]) + addrMatch[0].length);
+    const numMatch = afterAddr.match(/\b(\d+)\b/);
+    const parsedCount = numMatch ? parseInt(numMatch[1], 10) : defaultQty;
+    map[addr] = !isNaN(parsedCount) && parsedCount > 0 ? parsedCount : defaultQty;
   }
   return map;
 }
@@ -196,6 +226,19 @@ function serializeAllocationMap(map: Record<string, number>): string {
   return Object.entries(map)
     .map(([addr, count]) => `${addr}, ${count}`)
     .join('\n');
+}
+
+export function mergePhasesWithDefaults(incoming: any[]): PhaseConfigItem[] {
+  if (!Array.isArray(incoming) || incoming.length !== 6) return DEFAULT_PHASES;
+  return DEFAULT_PHASES.map((def, idx) => {
+    const inc = incoming[idx] || {};
+    return {
+      ...def,
+      ...inc,
+      allocation: typeof inc.allocation === 'number' && inc.allocation > 0 ? inc.allocation : def.allocation,
+      scheduledDate: typeof inc.scheduledDate === 'string' && inc.scheduledDate.trim() !== '' ? inc.scheduledDate : def.scheduledDate
+    };
+  });
 }
 
 export function AdminDashboard() {
@@ -210,8 +253,9 @@ export function AdminDashboard() {
   const [v3Fields, setV3Fields] = useState<any>(null);
   const [isSyncing, setIsSyncing] = useState<boolean>(true);
 
-  // Editable Phase Names & Whitelist Allocations (Phases 1, 2, 3)
+  // Editable Phase Names, Dates, Allocations & Whitelists (Phases 1, 2, 3)
   const [phases, setPhases] = useState<PhaseConfigItem[]>(DEFAULT_PHASES);
+  const [portalSettings, setPortalSettings] = useState<PortalSettings>(DEFAULT_PORTAL_SETTINGS);
   const [activeWlTab, setActiveWlTab] = useState<1 | 2 | 3>(1);
   const [wlText1, setWlText1] = useState<string>('');
   const [wlText2, setWlText2] = useState<string>('');
@@ -236,14 +280,16 @@ export function AdminDashboard() {
     setTimeout(() => setTxMessage(null), 12000);
   };
 
-  // Load any saved config from Display<Operative> or localStorage
   const loadSavedTerminalConfig = useCallback(async () => {
     try {
       const localRaw = localStorage.getItem('numbpolys_terminal_config_v1');
       if (localRaw) {
         const parsed = JSON.parse(localRaw);
         if (Array.isArray(parsed.phases) && parsed.phases.length === 6) {
-          setPhases(parsed.phases);
+          setPhases(mergePhasesWithDefaults(parsed.phases));
+        }
+        if (parsed.portalSettings) {
+          setPortalSettings({ ...DEFAULT_PORTAL_SETTINGS, ...parsed.portalSettings });
         }
         if (parsed.whitelists) {
           if (parsed.whitelists['1']) setWlText1(serializeAllocationMap(parsed.whitelists['1']));
@@ -272,7 +318,12 @@ export function AdminDashboard() {
             if (cfgVal && typeof cfgVal === 'string') {
               const decoded = JSON.parse(cfgVal);
               if (Array.isArray(decoded.phases) && decoded.phases.length === 6) {
-                setPhases(decoded.phases);
+                const merged = mergePhasesWithDefaults(decoded.phases);
+                setPhases(merged);
+                decoded.phases = merged;
+              }
+              if (decoded.portalSettings) {
+                setPortalSettings({ ...DEFAULT_PORTAL_SETTINGS, ...decoded.portalSettings });
               }
               if (decoded.whitelists) {
                 if (decoded.whitelists['1']) setWlText1(serializeAllocationMap(decoded.whitelists['1']));
@@ -289,7 +340,6 @@ export function AdminDashboard() {
     }
   }, [account?.address]);
 
-  // --- FETCH OVERSEER DATA VIA GRAPHQL (NO AUTO-LOOP FLICKER) ---
   const fetchOverseerData = useCallback(async () => {
     setIsSyncing(true);
     try {
@@ -340,8 +390,11 @@ export function AdminDashboard() {
 
   const activePhaseObj = phases.find(p => p.phase === currentPhase);
 
-  // --- HANDLE PHASE NAME OR PRICE EDIT ---
-  const handlePhaseFieldChange = (phaseNum: number, field: 'name' | 'price' | 'lore', val: string) => {
+  const handlePhaseFieldChange = (
+    phaseNum: number,
+    field: 'name' | 'price' | 'allocation' | 'lore' | 'scheduledDate',
+    val: string
+  ) => {
     setPhases(prev =>
       prev.map(p => {
         if (p.phase !== phaseNum) return p;
@@ -350,12 +403,49 @@ export function AdminDashboard() {
           const mistStr = String(Math.round(numPrice * 1_000_000_000));
           return { ...p, price: numPrice, mist: mistStr };
         }
+        if (field === 'allocation') {
+          const numAlloc = Math.max(1, parseInt(val, 10) || 0);
+          return { ...p, allocation: numAlloc };
+        }
         return { ...p, [field]: val };
       })
     );
   };
 
-  // --- SAVE & PUBLISH PHASE NAMES + WHITELISTS ON-CHAIN (AND LOCALSTORAGE) ---
+  // CSV / TXT File Upload Handler for Active Whitelist Tab
+  const handleCsvFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = String(event.target?.result || '');
+      const fallbackQty = Math.max(1, parseInt(defaultBulkCount, 10) || 1);
+      const extractedMap = parseAllocationText(content, fallbackQty);
+      const count = Object.keys(extractedMap).length;
+      if (count === 0) {
+        displayMessage(`[ ERROR: NO VALID 0x SUI WALLETS FOUND IN ${file.name.toUpperCase()} ]`);
+        return;
+      }
+
+      if (activeWlTab === 1) {
+        const currentMap = parseAllocationText(wlText1, fallbackQty);
+        const merged = { ...currentMap, ...extractedMap };
+        setWlText1(serializeAllocationMap(merged));
+      } else if (activeWlTab === 2) {
+        const currentMap = parseAllocationText(wlText2, fallbackQty);
+        const merged = { ...currentMap, ...extractedMap };
+        setWlText2(serializeAllocationMap(merged));
+      } else {
+        const currentMap = parseAllocationText(wlText3, fallbackQty);
+        const merged = { ...currentMap, ...extractedMap };
+        setWlText3(serializeAllocationMap(merged));
+      }
+      displayMessage(`[ SUCCESS: IMPORTED ${count} WALLETS FROM ${file.name.toUpperCase()} INTO PHASE 0${activeWlTab} ]`);
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
   const handlePublishTerminalConfig = async () => {
     if (!account || isProcessing) return;
     const fallbackQty = Math.max(1, parseInt(defaultBulkCount, 10) || 1);
@@ -365,6 +455,7 @@ export function AdminDashboard() {
 
     const configPayload = {
       phases,
+      portalSettings,
       whitelists: {
         '1': wl1Map,
         '2': wl2Map,
@@ -373,13 +464,12 @@ export function AdminDashboard() {
       updatedAt: Date.now()
     };
 
-    // Immediately sync to localStorage and dispatch event so current browser updates instantly
     const serialized = JSON.stringify(configPayload);
     localStorage.setItem('numbpolys_terminal_config_v1', serialized);
     window.dispatchEvent(new Event('numbpolys_config_updated'));
 
     setIsProcessing(true);
-    displayMessage(`[ SYNCING PHASE NAMES & WHITELIST ALLOCATIONS ON-CHAIN... PLEASE SIGN ]`);
+    displayMessage(`[ SYNCING PHASES, DATES, PORTAL SETTINGS & WHITELISTS ON-CHAIN... PLEASE SIGN ]`);
 
     try {
       const objects: any = await suiRpc.getOwnedObjects(
@@ -431,7 +521,7 @@ export function AdminDashboard() {
         {
           onSuccess: () => {
             displayMessage(
-              `[ SUCCESS: PHASE NAMES & WHITELISTS SYNCED ON-CHAIN (FREE: ${Object.keys(wl1Map).length} | WL1: ${Object.keys(wl2Map).length} | WL2: ${Object.keys(wl3Map).length} WALLETS) ]`
+              `[ SUCCESS: PHASES, DATES & WHITELISTS SYNCED ON-CHAIN (FREE: ${Object.keys(wl1Map).length} | WL1: ${Object.keys(wl2Map).length} | WL2: ${Object.keys(wl3Map).length} WALLETS) ]`
             );
             setIsProcessing(false);
           },
@@ -472,10 +562,10 @@ export function AdminDashboard() {
 
   // --- 2. THE 6-PHASE SWITCHBOARD ---
   const handleUpdateBatch = (phaseNum: number, priceMist: string, batchName: string) => {
-    // Also save current phase names/whitelists locally when switching
     const fallbackQty = Math.max(1, parseInt(defaultBulkCount, 10) || 1);
     const configPayload = {
       phases,
+      portalSettings,
       whitelists: {
         '1': parseAllocationText(wlText1, fallbackQty),
         '2': parseAllocationText(wlText2, fallbackQty),
@@ -690,6 +780,7 @@ export function AdminDashboard() {
   const parsedCount1 = Object.keys(parseAllocationText(wlText1, fallbackQty)).length;
   const parsedCount2 = Object.keys(parseAllocationText(wlText2, fallbackQty)).length;
   const parsedCount3 = Object.keys(parseAllocationText(wlText3, fallbackQty)).length;
+  const totalAllocatedPublicPool = phases.reduce((acc, p) => acc + (Number(p.allocation) || 0), 0);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', width: '100%', maxWidth: '800px', margin: '0 auto', fontFamily: 'monospace' }}>
@@ -735,16 +826,16 @@ export function AdminDashboard() {
           <span style={{ color: stakingActive ? '#00ff00' : '#ff3333' }}>{stakingActive ? 'ONLINE' : 'OFFLINE'}</span>
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-          <span style={{ color: '#A3A3A3' }}>Creator Vault / Treasury:</span>
+          <span style={{ color: '#A3A3A3' }}>Ecosystem Vault / Treasury:</span>
           <span style={{ color: '#E5E5E5' }}>{adminMinted ?? '...'} / 111 | {treasurySui} SUI</span>
         </div>
       </div>
 
-      {/* 6-PHASE SWITCHBOARD (FREE MINT, WL 1, WL 2, PUBLIC 1, PUBLIC 2, PUBLIC 3) */}
+      {/* 6-PHASE SWITCHBOARD */}
       <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.1)', padding: '1.5rem' }}>
         <h3 style={{ margin: '0 0 0.5rem 0', color: '#06B6D4' }}>// 6-PHASE DEPLOYMENT SWITCHBOARD</h3>
         <p style={{ color: '#A3A3A3', fontSize: '0.75rem', marginBottom: '1rem', lineHeight: '1.5' }}>
-          Click any phase below to activate it on-chain and automatically set its SUI price. Public phases have no artificial batch cap—you control when to advance or pause them.
+          Click any phase below to activate it on-chain and automatically set its SUI price and batch countdown on the Mint Portal.
         </p>
 
         <button
@@ -756,8 +847,12 @@ export function AdminDashboard() {
         </button>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.75rem' }}>
-          {phases.map((item) => {
+          {phases.map((item, idx) => {
             const isActive = currentPhase === item.phase && currentPriceMist === item.mist;
+            const cumulativeStart = phases.slice(0, idx).reduce((acc, p) => acc + (Number(p.allocation) || 0), 0);
+            const mintedInThisPhase = Math.max(0, Math.min(item.allocation, publicMintedCount - cumulativeStart));
+            const leftInThisPhase = Math.max(0, item.allocation - mintedInThisPhase);
+
             return (
               <button
                 key={item.phase}
@@ -780,13 +875,17 @@ export function AdminDashboard() {
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
                   <span style={{ fontSize: '9px', padding: '1px 5px', border: '1px solid currentColor', borderRadius: '2px' }}>
-                    {item.isWhitelist ? 'WHITELIST GATED' : 'OPEN PUBLIC'}
+                    {item.isWhitelist ? 'WHITELIST GATED' : 'PUBLIC BATCH'}
                   </span>
                   <span style={{ fontWeight: 'bold', color: item.price === 0 ? '#00ff80' : '#06B6D4' }}>
                     {item.price === 0 ? '0 SUI (FREE)' : `${item.price} SUI`}
                   </span>
                 </div>
                 <span style={{ fontWeight: 'bold', fontSize: '0.8rem', color: '#fff' }}>{item.name}</span>
+                <span style={{ fontSize: '0.68rem', color: '#06B6D4' }}>Schedule: {item.scheduledDate || 'TBA'}</span>
+                <span style={{ fontSize: '0.7rem', color: leftInThisPhase === 0 ? '#ff3333' : '#A3A3A3' }}>
+                  Batch Supply: {leftInThisPhase} / {item.allocation} Remaining
+                </span>
                 <span style={{ fontSize: '0.68rem', color: '#888' }}>
                   {isActive ? '● CURRENTLY LIVE ON TERMINAL' : 'Click to deploy phase on-chain →'}
                 </span>
@@ -796,49 +895,141 @@ export function AdminDashboard() {
         </div>
       </div>
 
-      {/* PHASE NAMES & WHITELIST ALLOCATION MANAGER */}
+      {/* PHASE NAMES, SCHEDULED DATES, PORTAL SETTINGS & WHITELIST MANAGER */}
       <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(0, 255, 128, 0.3)', padding: '1.5rem' }}>
-        <h3 style={{ margin: '0 0 0.5rem 0', color: '#00ff80' }}>// PHASE NAME EDITOR & WHITELIST ALLOCATION ENGINE</h3>
+        <h3 style={{ margin: '0 0 0.5rem 0', color: '#00ff80' }}>// WHITELIST PORTAL, PHASE DATES & ALLOCATION ENGINE</h3>
         <p style={{ color: '#A3A3A3', fontSize: '0.75rem', marginBottom: '1rem', lineHeight: '1.5' }}>
-          Customize the phase titles/prices that appear on the Mint Portal, and assign wallet addresses + exact mint allowances for <strong style={{ color: '#fff' }}>Phase 1 (Community Free Mint)</strong>, <strong style={{ color: '#fff' }}>Phase 2 (WL 1 - 2 SUI)</strong>, and <strong style={{ color: '#fff' }}>Phase 3 (WL 2 - 3 SUI)</strong>.
+          Configure phase titles, scheduled launch dates, application portal switches (WL 1 & WL 2), and upload CSV/wallet lists for <strong style={{ color: '#fff' }}>Phase 1 (Community Free)</strong>, <strong style={{ color: '#fff' }}>Phase 2 (WL 1)</strong>, and <strong style={{ color: '#fff' }}>Phase 3 (WL 2)</strong>.
         </p>
 
-        {/* EDITABLE PHASE NAMES & PRICES */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1.5rem', background: 'rgba(0,0,0,0.35)', padding: '12px', border: '1px solid rgba(255,255,255,0.08)' }}>
-          <div style={{ fontSize: '0.72rem', color: '#06B6D4', fontWeight: 'bold', marginBottom: '4px' }}>
-            // EDIT PHASE DISPLAY NAMES & SUI PRICES (EFFECTS ON MINT PORTAL)
+        {/* APPLICATION PORTAL CONTROLS (OPEN / CLOSED + MAX SPOTS) */}
+        <div style={{ background: 'rgba(6, 182, 212, 0.05)', border: '1px solid rgba(6, 182, 212, 0.25)', padding: '12px', marginBottom: '1.25rem', borderRadius: '2px' }}>
+          <div style={{ fontSize: '0.72rem', color: '#06B6D4', fontWeight: 'bold', marginBottom: '10px', letterSpacing: '0.05em' }}>
+            // WHITELIST APPLICATION & CHECKER PORTAL CONTROLS (/whitelist)
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.75rem' }}>
+            <div style={{ background: 'rgba(0,0,0,0.4)', padding: '10px', border: '1px solid rgba(255,255,255,0.08)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <span style={{ fontSize: '11px', color: '#E5E5E5', fontWeight: 'bold' }}>WL 1 (2 SUI) Applications:</span>
+                <button
+                  onClick={() => setPortalSettings(prev => ({ ...prev, wl1ApplyOpen: !prev.wl1ApplyOpen }))}
+                  style={{
+                    padding: '3px 8px',
+                    fontSize: '10px',
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    fontFamily: 'inherit',
+                    background: portalSettings.wl1ApplyOpen ? 'rgba(0,255,128,0.2)' : 'rgba(255,51,51,0.2)',
+                    color: portalSettings.wl1ApplyOpen ? '#00ff80' : '#ff3333',
+                    border: `1px solid ${portalSettings.wl1ApplyOpen ? '#00ff80' : '#ff3333'}`
+                  }}
+                >
+                  {portalSettings.wl1ApplyOpen ? 'OPEN' : 'CLOSED (CHECKER ONLY)'}
+                </button>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '10px', color: '#888' }}>
+                <span>Max Application Spots:</span>
+                <input
+                  type="number"
+                  min="1"
+                  value={portalSettings.wl1MaxApps}
+                  onChange={(e) => setPortalSettings(prev => ({ ...prev, wl1MaxApps: Math.max(1, parseInt(e.target.value, 10) || 100) }))}
+                  style={{ width: '65px', background: '#000', border: '1px solid #444', color: '#06B6D4', padding: '4px 6px', fontFamily: 'inherit', fontSize: '11px', fontWeight: 'bold' }}
+                />
+              </div>
+            </div>
+
+            <div style={{ background: 'rgba(0,0,0,0.4)', padding: '10px', border: '1px solid rgba(255,255,255,0.08)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <span style={{ fontSize: '11px', color: '#E5E5E5', fontWeight: 'bold' }}>WL 2 (3 SUI) Applications:</span>
+                <button
+                  onClick={() => setPortalSettings(prev => ({ ...prev, wl2ApplyOpen: !prev.wl2ApplyOpen }))}
+                  style={{
+                    padding: '3px 8px',
+                    fontSize: '10px',
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    fontFamily: 'inherit',
+                    background: portalSettings.wl2ApplyOpen ? 'rgba(0,255,128,0.2)' : 'rgba(255,51,51,0.2)',
+                    color: portalSettings.wl2ApplyOpen ? '#00ff80' : '#ff3333',
+                    border: `1px solid ${portalSettings.wl2ApplyOpen ? '#00ff80' : '#ff3333'}`
+                  }}
+                >
+                  {portalSettings.wl2ApplyOpen ? 'OPEN' : 'CLOSED (CHECKER ONLY)'}
+                </button>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '10px', color: '#888' }}>
+                <span>Max Application Spots:</span>
+                <input
+                  type="number"
+                  min="1"
+                  value={portalSettings.wl2MaxApps}
+                  onChange={(e) => setPortalSettings(prev => ({ ...prev, wl2MaxApps: Math.max(1, parseInt(e.target.value, 10) || 200) }))}
+                  style={{ width: '65px', background: '#000', border: '1px solid #444', color: '#06B6D4', padding: '4px 6px', fontFamily: 'inherit', fontSize: '11px', fontWeight: 'bold' }}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* EDITABLE PHASE NAMES, SCHEDULED DATES, ALLOCATIONS & PRICES */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem', marginBottom: '1.5rem', background: 'rgba(0,0,0,0.35)', padding: '12px', border: '1px solid rgba(255,255,255,0.08)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '0.72rem', color: '#06B6D4', fontWeight: 'bold' }}>
+              // EDIT PHASE NAMES, LAUNCH DATES, BATCH SUPPLY & SUI PRICES
+            </span>
+            <span style={{ fontSize: '0.72rem', color: totalAllocatedPublicPool === 1000 ? '#00ff80' : 'orange', fontWeight: 'bold' }}>
+              TOTAL ALLOCATED POOL: {totalAllocatedPublicPool} / 1,000
+            </span>
           </div>
           {phases.map((p) => (
-            <div key={p.phase} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-              <span style={{ width: '65px', fontSize: '11px', color: '#888', fontWeight: 'bold' }}>PHASE 0{p.phase}:</span>
+            <div key={p.phase} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap', borderBottom: '1px dashed rgba(255,255,255,0.05)', paddingBottom: '6px' }}>
+              <span style={{ width: '62px', fontSize: '11px', color: '#888', fontWeight: 'bold' }}>PHASE 0{p.phase}:</span>
               <input
                 type="text"
                 value={p.name}
                 onChange={(e) => handlePhaseFieldChange(p.phase, 'name', e.target.value)}
                 placeholder="Phase Name"
-                style={{ flex: 1, minWidth: '200px', background: 'rgba(0,0,0,0.5)', border: '1px solid #444', color: '#E5E5E5', padding: '6px 8px', fontFamily: 'inherit', fontSize: '11px' }}
+                style={{ flex: 1, minWidth: '170px', background: 'rgba(0,0,0,0.5)', border: '1px solid #444', color: '#E5E5E5', padding: '6px 8px', fontFamily: 'inherit', fontSize: '11px' }}
               />
+              <input
+                type="text"
+                value={p.scheduledDate || ''}
+                onChange={(e) => handlePhaseFieldChange(p.phase, 'scheduledDate', e.target.value)}
+                placeholder="Date / Time (e.g. NOV 24 // 16:00 UTC)"
+                style={{ width: '165px', background: 'rgba(0,0,0,0.5)', border: '1px solid #06B6D4', color: '#06B6D4', padding: '6px 8px', fontFamily: 'inherit', fontSize: '11px' }}
+              />
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <input
+                  type="number"
+                  min="1"
+                  value={p.allocation}
+                  onChange={(e) => handlePhaseFieldChange(p.phase, 'allocation', e.target.value)}
+                  style={{ width: '58px', background: 'rgba(0,0,0,0.5)', border: '1px solid #444', color: '#E5E5E5', padding: '6px 6px', fontFamily: 'inherit', fontSize: '11px', fontWeight: 'bold' }}
+                />
+                <span style={{ fontSize: '9px', color: '#888' }}>QTY</span>
+              </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                 <input
                   type="number"
                   step="0.1"
                   value={p.price}
                   onChange={(e) => handlePhaseFieldChange(p.phase, 'price', e.target.value)}
-                  style={{ width: '70px', background: 'rgba(0,0,0,0.5)', border: '1px solid #444', color: '#00ff80', padding: '6px 8px', fontFamily: 'inherit', fontSize: '11px', fontWeight: 'bold' }}
+                  style={{ width: '52px', background: 'rgba(0,0,0,0.5)', border: '1px solid #444', color: '#00ff80', padding: '6px 6px', fontFamily: 'inherit', fontSize: '11px', fontWeight: 'bold' }}
                 />
-                <span style={{ fontSize: '10px', color: '#888' }}>SUI</span>
+                <span style={{ fontSize: '9px', color: '#888' }}>SUI</span>
               </div>
             </div>
           ))}
         </div>
 
-        {/* WHITELIST WALLET & MINT COUNT ALLOCATION TABS */}
+        {/* WHITELIST WALLET & CSV IMPORT TABS */}
         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
           <button
             onClick={() => setActiveWlTab(1)}
             style={{ flex: 1, padding: '8px', background: activeWlTab === 1 ? '#00ff80' : 'rgba(255,255,255,0.04)', color: activeWlTab === 1 ? '#0D0D11' : '#E5E5E5', border: '1px solid rgba(0,255,128,0.4)', fontWeight: 'bold', fontSize: '11px', cursor: 'pointer', fontFamily: 'inherit' }}
           >
-            PHASE 1: FREE MINT WL ({parsedCount1})
+            PHASE 1: COMMUNITY FREE WL ({parsedCount1})
           </button>
           <button
             onClick={() => setActiveWlTab(2)}
@@ -856,17 +1047,34 @@ export function AdminDashboard() {
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', flexWrap: 'wrap', gap: '0.5rem' }}>
           <span style={{ fontSize: '11px', color: '#A3A3A3' }}>
-            Format: <strong style={{ color: '#fff' }}>0xWalletAddress, MintAllowance</strong> (one per line, or just paste addresses and set default allowance →)
+            Format: <strong style={{ color: '#fff' }}>0xWalletAddress, MintAllowance</strong> (or upload a <strong style={{ color: '#00ff80' }}>.CSV / .TXT</strong> file directly)
           </span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ fontSize: '10px', color: '#888' }}>Default Mints if not specified on line:</span>
-            <input
-              type="number"
-              min="1"
-              value={defaultBulkCount}
-              onChange={(e) => setDefaultBulkCount(e.target.value)}
-              style={{ width: '50px', background: 'rgba(0,0,0,0.5)', border: '1px solid #444', color: '#fff', padding: '4px 6px', fontFamily: 'inherit', fontSize: '11px' }}
-            />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <label
+              style={{
+                background: 'rgba(6, 182, 212, 0.15)',
+                color: '#06B6D4',
+                border: '1px solid #06B6D4',
+                padding: '4px 10px',
+                fontSize: '10px',
+                fontWeight: 'bold',
+                cursor: 'pointer',
+                borderRadius: '2px'
+              }}
+            >
+              [ 📂 UPLOAD CSV / TXT FOR PHASE 0{activeWlTab} ]
+              <input type="file" accept=".csv,.txt" onChange={handleCsvFileUpload} style={{ display: 'none' }} />
+            </label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <span style={{ fontSize: '10px', color: '#888' }}>Default Qty:</span>
+              <input
+                type="number"
+                min="1"
+                value={defaultBulkCount}
+                onChange={(e) => setDefaultBulkCount(e.target.value)}
+                style={{ width: '46px', background: 'rgba(0,0,0,0.5)', border: '1px solid #444', color: '#fff', padding: '4px 6px', fontFamily: 'inherit', fontSize: '11px' }}
+              />
+            </div>
           </div>
         </div>
 
@@ -875,7 +1083,7 @@ export function AdminDashboard() {
             rows={6}
             value={wlText1}
             onChange={(e) => setWlText1(e.target.value)}
-            placeholder={`Paste Phase 1 (Community Free Mint) wallets & allowances here, e.g.:\n0xdb67bfb984df37d73755da48c166689e7d584b17cf6c23a680cb05d90f9653fb, 1\n0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef, 2`}
+            placeholder={`Paste or Upload Phase 1 (Community Free Mint) wallets & allowances here:\n0xdb67bfb984df37d73755da48c166689e7d584b17cf6c23a680cb05d90f9653fb, 1`}
             style={{ width: '100%', background: 'rgba(0,0,0,0.4)', border: '1px solid #444', color: '#00ff80', padding: '10px', boxSizing: 'border-box', fontFamily: 'monospace', fontSize: '11px', marginBottom: '1rem', resize: 'vertical' }}
           />
         )}
@@ -885,7 +1093,7 @@ export function AdminDashboard() {
             rows={6}
             value={wlText2}
             onChange={(e) => setWlText2(e.target.value)}
-            placeholder={`Paste Phase 2 (WL 1 — 2 SUI) wallets & allowances here, e.g.:\n0xdb67bfb984df37d73755da48c166689e7d584b17cf6c23a680cb05d90f9653fb, 3\n0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef, 5`}
+            placeholder={`Paste or Upload Phase 2 (WL 1 — 2 SUI) wallets & allowances here:\n0xdb67bfb984df37d73755da48c166689e7d584b17cf6c23a680cb05d90f9653fb, 3`}
             style={{ width: '100%', background: 'rgba(0,0,0,0.4)', border: '1px solid #444', color: '#06B6D4', padding: '10px', boxSizing: 'border-box', fontFamily: 'monospace', fontSize: '11px', marginBottom: '1rem', resize: 'vertical' }}
           />
         )}
@@ -895,7 +1103,7 @@ export function AdminDashboard() {
             rows={6}
             value={wlText3}
             onChange={(e) => setWlText3(e.target.value)}
-            placeholder={`Paste Phase 3 (WL 2 — 3 SUI) wallets & allowances here, e.g.:\n0xdb67bfb984df37d73755da48c166689e7d584b17cf6c23a680cb05d90f9653fb, 3\n0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef, 5`}
+            placeholder={`Paste or Upload Phase 3 (WL 2 — 3 SUI) wallets & allowances here:\n0xdb67bfb984df37d73755da48c166689e7d584b17cf6c23a680cb05d90f9653fb, 3`}
             style={{ width: '100%', background: 'rgba(0,0,0,0.4)', border: '1px solid #444', color: '#06B6D4', padding: '10px', boxSizing: 'border-box', fontFamily: 'monospace', fontSize: '11px', marginBottom: '1rem', resize: 'vertical' }}
           />
         )}
@@ -905,7 +1113,7 @@ export function AdminDashboard() {
           disabled={isProcessing}
           style={{ width: '100%', padding: '12px', background: 'rgba(0, 255, 128, 0.15)', color: '#00ff80', border: '1px solid #00ff80', cursor: isProcessing ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontFamily: 'inherit', fontSize: '11px', letterSpacing: '0.08em' }}
         >
-          {isProcessing ? '[ PUBLISHING CONFIG... ]' : '[ ⚡ SAVE & PUBLISH WHITELISTS + PHASE NAMES ON-CHAIN ]'}
+          {isProcessing ? '[ PUBLISHING CONFIG... ]' : '[ ⚡ SAVE & PUBLISH WHITELISTS, DATES & PORTAL SETTINGS ON-CHAIN ]'}
         </button>
       </div>
 

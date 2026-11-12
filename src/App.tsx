@@ -13,11 +13,21 @@ import { Canvas } from '@react-three/fiber';
 import { ORIGINAL_PACKAGE_ID, REGISTRY_ID, V3_STATE_ID } from './config';
 import { LayerStacker } from './LayerStacker';
 import GridBackground from './components/GridBackground';
-import { AdminDashboard } from './AdminDashboard';
+import {
+  AdminDashboard,
+  DEFAULT_PHASES,
+  DEFAULT_PORTAL_SETTINGS,
+  PhaseConfigItem,
+  PortalSettings,
+  mergePhasesWithDefaults
+} from './AdminDashboard';
+import { WhitelistPortal } from './WhitelistPortal';
+import { HomePortal } from './HomePortal';
 import registryData from './registry.json';
 import '@mysten/dapp-kit/dist/index.css';
 
 const ACTIVE_PACKAGE = "0x4b254bb4146094f1214106f7be8b5cfffd59e5a0f2a89f22ae3eef024d2fda0e";
+const ADMIN_WALLET = "0xdb67bfb984df37d73755da48c166689e7d584b17cf6c23a680cb05d90f9653fb";
 
 // --- OFFICIAL SUI MAINNET GRAPHQL ENDPOINT (CORS-OPEN, LIVE, NO JSON-RPC DEPRECATION) ---
 const SUI_GRAPHQL_URL = 'https://graphql.mainnet.sui.io/graphql';
@@ -327,7 +337,6 @@ const suiRpc = {
   }
 };
 
-// Complete GraphQL-backed client for @mysten/dapp-kit (zero console errors, supports Reads + Transaction Execution)
 const customGqlSuiClient = {
   resolveNameServiceNames: async ({ address }: { address: string }) => {
     const name = address ? await suiRpc.resolveSuiNS(address) : null;
@@ -451,18 +460,19 @@ const toRoman = (num: number): string => {
   return res;
 };
 
-const ESCALATION_MATRIX = [
-  { phase: 1, name: "Batch 01 // The Vanguard", lore: "The genesis entry. Purely for the early operators who see the vision first." },
-  { phase: 2, name: "Batch 02 // The Recon Protocol", lore: "Mapping the ecosystem. Momentum is established; the early discount tightens." },
-  { phase: 3, name: "Batch 03 // The Iron Grid", lore: "Establishing the infrastructure. TradePort indexing is moving." },
-  { phase: 4, name: "Batch 04 // The Static Runners", lore: "Navigating the market noise. The standard entry point as visibility scales." },
-  { phase: 5, name: "Batch 05 // The Obsidian Core", lore: "The foundation of the syndicate. The true value of the dynamic architecture is now public." },
-  { phase: 6, name: "Batch 06 // The Crimson Shift", lore: "The turning point of the infiltration. FOMO accelerates as supply begins to visibly contract." },
-  { phase: 7, name: "Batch 07 // The Earthen Cartel", lore: "Locking down the underground. Late adopters pay the premium for waiting for the grid to fill." },
-  { phase: 8, name: "Batch 08 // The Phantom Asset", lore: "High-level operatives only. The supply is scarce." },
-  { phase: 9, name: "Batch 09 // The Golden Hierarchy", lore: "The elite ranks emerge. The terminal is highly active with trait trading." },
-  { phase: 10, name: "Batch 10 // The Mythic Unknown", lore: "The final anomalies enter circulation." }
-];
+type TerminalViewType = 'HOME' | 'WHITELIST' | 'GENERATOR' | 'ARMORY' | 'TELEPORTER' | 'MARKETPLACE' | 'ADMIN';
+
+function resolveInitialViewFromUrl(): TerminalViewType {
+  if (typeof window === 'undefined') return 'HOME';
+  const path = window.location.pathname.toLowerCase();
+  if (path.includes('whitelist')) return 'WHITELIST';
+  if (path.includes('mint') || path.includes('generator')) return 'GENERATOR';
+  if (path.includes('armory')) return 'ARMORY';
+  if (path.includes('teleporter')) return 'TELEPORTER';
+  if (path.includes('marketplace') || path.includes('q8ry')) return 'MARKETPLACE';
+  if (path.includes('overseer') || path.includes('admin')) return 'ADMIN';
+  return 'HOME';
+}
 
 const ConstructThumbnail = React.memo(({ op, index, isSelected, activeGear, onClick, isProcessingTx, refreshCounter }: any) => {
   const id = op.data?.objectId || op.address;
@@ -656,7 +666,7 @@ function TerminalUI() {
   const suiClient = useSuiClient();
   const { mutate: signAndExecuteTransaction } = useSignAndExecuteTransaction();
 
-  const [activeView, setActiveView] = useState<'GENERATOR' | 'ARMORY' | 'ADMIN'>('GENERATOR');
+  const [activeView, setActiveView] = useState<TerminalViewType>(resolveInitialViewFromUrl);
   const [selectedOpId, setSelectedOpId] = useState<string | null>(null);
   
   const [equippedGear, setEquippedGear] = useState<Record<string, { objectId: string; imageUrl: string; name?: string; originalCategory?: string; isNone?: boolean }>>({});
@@ -670,7 +680,6 @@ function TerminalUI() {
   const [currentPage, setCurrentPage] = useState(0);
   const ITEMS_PER_PAGE = 12;
   const [mintQuantity, setMintQuantity] = useState<number>(1);
-  const [hasClaimedFreeLocal, setHasClaimedFreeLocal] = useState<boolean>(false);
   const [isProcessingTx, setIsProcessingTx] = useState(false);
   const [txMessage, setTxMessage] = useState<string | null>(null);
   const [transferAddress, setTransferAddress] = useState<string>('');
@@ -679,16 +688,113 @@ function TerminalUI() {
   const [displayOperatives, setDisplayOperatives] = useState<any[]>([]);
   const [looseTraitsList, setLooseTraitsList] = useState<any[]>([]);
 
+  // Dynamic 6-Phase Config, Portal Settings & Per-Phase Whitelist Maps synced from Overseer
+  const [phaseMatrix, setPhaseMatrix] = useState<PhaseConfigItem[]>(DEFAULT_PHASES);
+  const [portalSettings, setPortalSettings] = useState<PortalSettings>(DEFAULT_PORTAL_SETTINGS);
+  const [phaseWhitelists, setPhaseWhitelists] = useState<Record<string, Record<string, number>>>({
+    '1': {},
+    '2': {},
+    '3': {}
+  });
+  const [localPhaseMintedCount, setLocalPhaseMintedCount] = useState<number>(0);
+
   const [globalProjectName, setGlobalProjectName] = useState('Numb Polys');
   const [globalProjectBio, setGlobalProjectBio] = useState('1,111 dynamic, composable 3D constructs on Sui Mainnet powered by Move and Walrus decentralized storage. Every trait is an independent, equippable on-chain object.');
   const [globalProjectUrl, setGlobalProjectUrl] = useState('https://mainnet.numbpolys.xyz');
   const [globalProjectImage, setGlobalProjectImage] = useState('');
   const [globalProjectBanner, setGlobalProjectBanner] = useState('');
 
+  // Navigate and update browser URL (/, /whitelist, /mint, /armory, /teleporter, /marketplace, /overseer)
+  const navigateToView = (target: TerminalViewType) => {
+    if (isProcessingTx) return;
+    setActiveView(target);
+    const routeMap: Record<TerminalViewType, string> = {
+      HOME: '/',
+      WHITELIST: '/whitelist',
+      GENERATOR: '/mint',
+      ARMORY: '/armory',
+      TELEPORTER: '/teleporter',
+      MARKETPLACE: '/marketplace',
+      ADMIN: '/overseer'
+    };
+    if (typeof window !== 'undefined') {
+      window.history.pushState({}, '', routeMap[target] || '/');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
+  useEffect(() => {
+    const onPopState = () => setActiveView(resolveInitialViewFromUrl());
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
+
   const displayTxMessage = (msg: string) => {
     setTxMessage(msg);
     setTimeout(() => setTxMessage(null), 8000);
   };
+
+  // Sync Phase Names, Scheduled Dates, Portal Settings & Whitelist Maps from localStorage AND on-chain Display<Operative>
+  const syncTerminalConfig = useCallback(async () => {
+    try {
+      const localRaw = localStorage.getItem('numbpolys_terminal_config_v1');
+      if (localRaw) {
+        const parsed = JSON.parse(localRaw);
+        if (Array.isArray(parsed.phases) && parsed.phases.length === 6) {
+          setPhaseMatrix(mergePhasesWithDefaults(parsed.phases));
+        }
+        if (parsed.portalSettings) {
+          setPortalSettings({ ...DEFAULT_PORTAL_SETTINGS, ...parsed.portalSettings });
+        }
+        if (parsed.whitelists) {
+          setPhaseWhitelists(parsed.whitelists);
+        }
+      }
+
+      const objects: any = await suiRpc.getOwnedObjects(
+        ADMIN_WALLET,
+        `0x2::display::Display<${ORIGINAL_PACKAGE_ID}::operative::Operative>`
+      );
+      if (objects?.data?.length) {
+        const displayObj = objects.data[0];
+        const rawContents =
+          displayObj.data?.content?.fields?.fields?.fields?.contents ||
+          displayObj.data?.content?.fields?.fields?.contents ||
+          displayObj.data?.content?.fields?.contents ||
+          [];
+        if (Array.isArray(rawContents)) {
+          const cfgEntry = rawContents.find(
+            (entry: any) => (entry?.fields?.key || entry?.key) === 'terminal_config'
+          );
+          const cfgVal = cfgEntry?.fields?.value || cfgEntry?.value;
+          if (cfgVal && typeof cfgVal === 'string') {
+            const decoded = JSON.parse(cfgVal);
+            if (Array.isArray(decoded.phases) && decoded.phases.length === 6) {
+              const merged = mergePhasesWithDefaults(decoded.phases);
+              setPhaseMatrix(merged);
+              decoded.phases = merged;
+            }
+            if (decoded.portalSettings) {
+              setPortalSettings({ ...DEFAULT_PORTAL_SETTINGS, ...decoded.portalSettings });
+            }
+            if (decoded.whitelists) {
+              setPhaseWhitelists(decoded.whitelists);
+            }
+            localStorage.setItem('numbpolys_terminal_config_v1', JSON.stringify(decoded));
+          }
+        }
+      }
+    } catch (e) {
+      // Fallback silently to DEFAULT_PHASES if not set yet
+    }
+  }, []);
+
+  useEffect(() => {
+    syncTerminalConfig();
+    const handleConfigUpdate = () => syncTerminalConfig();
+    window.addEventListener('numbpolys_config_updated', handleConfigUpdate);
+    return () => window.removeEventListener('numbpolys_config_updated', handleConfigUpdate);
+  }, [syncTerminalConfig]);
 
   const refetchRegistry = useCallback(async () => {
     try {
@@ -756,27 +862,88 @@ function TerminalUI() {
   const currentPhase = rawPhase !== undefined ? Number(rawPhase) : 0; 
   const rawMinted = regFields?.public_minted ?? regFields?.total_minted ?? regFields?.minted;
   const publicIndex = rawMinted !== undefined ? parseInt(String(rawMinted), 10) : 111;
+
+  // Track both Ecosystem Vault Minted (e.g. 24) and Public/WL Minted (publicIndex - 111)
+  const rawAdminMinted = regFields?.admin_minted ?? regFields?.reserve_minted;
+  const adminMintedCount = rawAdminMinted !== undefined ? parseInt(String(rawAdminMinted), 10) : 0;
+  const publicMintedCount = Math.max(0, publicIndex - 111);
+  const totalMintedGlobal = adminMintedCount + publicMintedCount;
+
+  // Live countdown across the entire 1,111 collection
+  const totalRemainingConstructs = Math.max(0, 1111 - totalMintedGlobal);
+  // Public/WL pool remaining (out of 1,000 index slots 111..1110)
+  const totalRemainingSupply = Math.max(0, 1111 - publicIndex);
   
   const mintPriceMist = regFields?.mint_price ?? regFields?.price ?? "0"; 
   const mintPriceSui = Number(mintPriceMist) / 1000000000;
-  const isFreeMintActive = currentPhase > 0 && mintPriceSui === 0;
-  const activeBatch = ESCALATION_MATRIX.find(b => b.phase === currentPhase) || ESCALATION_MATRIX[0];
 
-  const currentBatchLimit = 111 + (currentPhase * 100);
-  const remainingInBatch = Math.max(0, currentBatchLimit - publicIndex);
+  const activeBatch = phaseMatrix.find(b => b.phase === currentPhase) || phaseMatrix[0] || DEFAULT_PHASES[0];
+  const isWhitelistPhase = currentPhase >= 1 && currentPhase <= 3;
+  const isFreeMintActive = currentPhase === 1 || (currentPhase > 0 && mintPriceSui === 0);
+
+  // Compute cumulative batch boundaries & remaining supply for the active phase and all 6 phases
+  const phaseStatsList = useMemo(() => {
+    let runningStart = 0;
+    return phaseMatrix.map((p) => {
+      const alloc = Number(p.allocation) || 100;
+      const startIdx = runningStart;
+      const endIdx = runningStart + alloc;
+      runningStart = endIdx;
+
+      const mintedInPhase = Math.max(0, Math.min(alloc, publicMintedCount - startIdx));
+      const remainingInPhase = Math.max(0, alloc - mintedInPhase);
+      return {
+        ...p,
+        startIdx,
+        endIdx,
+        mintedInPhase,
+        remainingInPhase
+      };
+    });
+  }, [phaseMatrix, publicMintedCount]);
+
+  const activePhaseStats = phaseStatsList.find(p => p.phase === currentPhase) || phaseStatsList[0];
+  const remainingInCurrentPhase = activePhaseStats ? activePhaseStats.remainingInPhase : 0;
+  const currentPhaseAllocation = activePhaseStats ? activePhaseStats.allocation : 100;
+
+  // Per-wallet Whitelist & Free Mint allowance tracking
+  const userAddressLower = account?.address?.toLowerCase() || '';
+  const currentPhaseWlMap = isWhitelistPhase ? (phaseWhitelists[String(currentPhase)] || {}) : {};
+  const walletMaxAllowance = isWhitelistPhase ? (currentPhaseWlMap[userAddressLower] ?? 0) : 999;
 
   useEffect(() => {
-    if (!account?.address) { setHasClaimedFreeLocal(false); return; }
-    const claimed = localStorage.getItem(`numbpolys_freemint_claimed_${account.address.toLowerCase()}`) === 'true';
-    setHasClaimedFreeLocal(claimed);
-  }, [account?.address, refreshCounter]);
+    if (!userAddressLower || !currentPhase) {
+      setLocalPhaseMintedCount(0);
+      return;
+    }
+    const storedCount = parseInt(
+      localStorage.getItem(`numbpolys_minted_phase_${currentPhase}_${userAddressLower}`) || '0',
+      10
+    );
+    if (currentPhase === 1 && storedCount === 0 && displayOperatives.length > 0 && walletMaxAllowance <= 1) {
+      setLocalPhaseMintedCount(displayOperatives.length);
+    } else {
+      setLocalPhaseMintedCount(isNaN(storedCount) ? 0 : storedCount);
+    }
+  }, [userAddressLower, currentPhase, displayOperatives.length, walletMaxAllowance, refreshCounter]);
 
-  const hasAlreadyClaimedFreeMint = isFreeMintActive && (displayOperatives.length > 0 || hasClaimedFreeLocal);
+  const walletRemainingAllowance = isWhitelistPhase
+    ? Math.max(0, Math.min(walletMaxAllowance - localPhaseMintedCount, remainingInCurrentPhase))
+    : Math.min(remainingInCurrentPhase, totalRemainingSupply);
+
+  const isWalletWhitelisted = !isWhitelistPhase || walletMaxAllowance > 0;
 
   useEffect(() => {
-    if (isFreeMintActive && mintQuantity !== 1) setMintQuantity(1);
-    else if (!isFreeMintActive && remainingInBatch > 0 && mintQuantity > remainingInBatch) setMintQuantity(remainingInBatch);
-  }, [isFreeMintActive, remainingInBatch, mintQuantity]);
+    const maxCap = isWhitelistPhase
+      ? walletRemainingAllowance
+      : Math.min(remainingInCurrentPhase, totalRemainingSupply);
+
+    if (maxCap > 0 && mintQuantity > maxCap) {
+      setMintQuantity(Math.min(5, maxCap));
+    } else if (maxCap === 0 && mintQuantity !== 1) {
+      setMintQuantity(1);
+    }
+  }, [isWhitelistPhase, walletRemainingAllowance, remainingInCurrentPhase, totalRemainingSupply, mintQuantity]);
 
   useEffect(() => {
     if (displayOperatives.length > 0 && (!selectedOpId || !displayOperatives.find(op => op.data?.objectId === selectedOpId))) {
@@ -1170,12 +1337,25 @@ function TerminalUI() {
   };
 
   const mintOperative = async () => {
-    if (!account || isProcessingTx || currentPhase === 0 || remainingInBatch <= 0) return;
-    if (isFreeMintActive && (displayOperatives.length > 0 || hasClaimedFreeLocal)) { displayTxMessage(`[ ERROR: FREE MINT LIMIT REACHED (MAX 1 CONSTRUCT PER WALLET) ]`); return; }
+    if (!account || isProcessingTx || currentPhase === 0 || totalRemainingSupply <= 0 || remainingInCurrentPhase <= 0) return;
 
-    const actualCount = isFreeMintActive ? 1 : Math.min(mintQuantity, remainingInBatch);
+    if (isWhitelistPhase) {
+      if (!isWalletWhitelisted) {
+        displayTxMessage(`[ ERROR: WALLET NOT WHITELISTED FOR ${activeBatch.name.toUpperCase()} ]`);
+        return;
+      }
+      if (walletRemainingAllowance <= 0) {
+        displayTxMessage(`[ ERROR: PHASE ALLOCATION CLAIMED (${walletMaxAllowance} MAX FOR THIS WALLET) ]`);
+        return;
+      }
+    }
+
+    const actualCount = isWhitelistPhase
+      ? Math.min(mintQuantity, walletRemainingAllowance, remainingInCurrentPhase, totalRemainingSupply)
+      : Math.min(mintQuantity, remainingInCurrentPhase, totalRemainingSupply);
+
     setIsProcessingTx(true);
-    displayTxMessage(`[ PREPARING ${isFreeMintActive ? 'FREE MINT (1 MAX)' : `BATCH MINT (${actualCount})`}... PLEASE SIGN ]`);
+    displayTxMessage(`[ PREPARING DEPLOYMENT (${actualCount} CONSTRUCT${actualCount > 1 ? 'S' : ''})... PLEASE SIGN ]`);
 
     try {
       const tx = new Transaction();
@@ -1208,8 +1388,16 @@ function TerminalUI() {
 
       signAndExecuteTransaction({ transaction: tx as any }, {
         onSuccess: async () => {
-          if (isFreeMintActive && account?.address) { localStorage.setItem(`numbpolys_freemint_claimed_${account.address.toLowerCase()}`, 'true'); setHasClaimedFreeLocal(true); }
-          displayTxMessage(`[ SUCCESS: CONSTRUCT(S) DEPLOYED ]`); await refreshTerminalState(); setMintQuantity(1); setIsProcessingTx(false);
+          if (account?.address) {
+            const addrKey = `numbpolys_minted_phase_${currentPhase}_${account.address.toLowerCase()}`;
+            const updatedCount = localPhaseMintedCount + actualCount;
+            localStorage.setItem(addrKey, String(updatedCount));
+            setLocalPhaseMintedCount(updatedCount);
+          }
+          displayTxMessage(`[ SUCCESS: ${actualCount} CONSTRUCT(S) DEPLOYED ]`);
+          await refreshTerminalState();
+          setMintQuantity(1);
+          setIsProcessingTx(false);
         },
         onError: (err: any) => { const errMsg = err?.message?.split('\n')[0] || "TRANSACTION REJECTED"; displayTxMessage(`[ ERROR: ${errMsg.slice(0, 60)} ]`); setIsProcessingTx(false); }
       });
@@ -1275,15 +1463,19 @@ function TerminalUI() {
       buttonText = '⚡ SYNCING ON-CHAIN STATE...'; buttonDisabled = true; buttonStyle.background = 'rgba(6, 182, 212, 0.08)'; buttonStyle.color = '#06B6D4'; buttonStyle.border = '1px dashed #06B6D4'; buttonStyle.cursor = 'wait';
     } else if (currentPhase === 0) {
       buttonText = 'MINT PAUSED'; buttonDisabled = true; buttonStyle.background = 'rgba(255,51,51,0.1)'; buttonStyle.color = '#ff3333'; buttonStyle.border = '1px dashed #ff3333'; buttonStyle.cursor = 'not-allowed';
-    } else if (remainingInBatch <= 0) {
-      buttonText = `[ BATCH ${currentPhase.toString().padStart(2, '0')} ALLOCATION DEPLETED ]`; buttonDisabled = true; buttonStyle.background = 'rgba(255, 165, 0, 0.05)'; buttonStyle.color = 'orange'; buttonStyle.border = '1px dashed orange'; buttonStyle.cursor = 'not-allowed';
-    } else if (isFreeMintActive && hasAlreadyClaimedFreeMint) {
-      buttonText = '[ FREE MINT CLAIMED (1 MAX PER WALLET) ]'; buttonDisabled = true; buttonStyle.background = 'rgba(255, 51, 51, 0.08)'; buttonStyle.color = '#ff3333'; buttonStyle.border = '1px dashed #ff3333'; buttonStyle.cursor = 'not-allowed';
+    } else if (totalRemainingSupply <= 0 || totalRemainingConstructs <= 0) {
+      buttonText = '[ COLLECTION SUPPLY DEPLETED ]'; buttonDisabled = true; buttonStyle.background = 'rgba(255, 165, 0, 0.05)'; buttonStyle.color = 'orange'; buttonStyle.border = '1px dashed orange'; buttonStyle.cursor = 'not-allowed';
+    } else if (remainingInCurrentPhase <= 0) {
+      buttonText = `[ PHASE 0${currentPhase} ALLOCATION DEPLETED ]`; buttonDisabled = true; buttonStyle.background = 'rgba(255, 165, 0, 0.05)'; buttonStyle.color = 'orange'; buttonStyle.border = '1px dashed orange'; buttonStyle.cursor = 'not-allowed';
+    } else if (isWhitelistPhase && !isWalletWhitelisted) {
+      buttonText = `[ WALLET NOT ELIGIBLE FOR PHASE 0${currentPhase} ]`; buttonDisabled = true; buttonStyle.background = 'rgba(255, 51, 51, 0.08)'; buttonStyle.color = '#ff3333'; buttonStyle.border = '1px dashed #ff3333'; buttonStyle.cursor = 'not-allowed';
+    } else if (isWhitelistPhase && walletRemainingAllowance <= 0) {
+      buttonText = `[ PHASE 0${currentPhase} ALLOCATION CLAIMED (${walletMaxAllowance} MAX) ]`; buttonDisabled = true; buttonStyle.background = 'rgba(255, 51, 51, 0.08)'; buttonStyle.color = '#ff3333'; buttonStyle.border = '1px dashed #ff3333'; buttonStyle.cursor = 'not-allowed';
     } else if (isFreeMintActive) {
-      buttonText = isProcessingTx ? '⚡ PROCESSING...' : `⚡ DEPLOY 1 CONSTRUCT [ FREE MINT // 1 PER WALLET ]`; buttonDisabled = isProcessingTx; buttonStyle.background = 'rgba(0, 255, 128, 0.12)'; buttonStyle.color = '#00ff80'; buttonStyle.border = '1px solid #00ff80';
+      buttonText = isProcessingTx ? '⚡ PROCESSING...' : `⚡ DEPLOY ${mintQuantity} CONSTRUCT(S) [ FREE MINT // ${walletRemainingAllowance} LEFT ]`; buttonDisabled = isProcessingTx; buttonStyle.background = 'rgba(0, 255, 128, 0.12)'; buttonStyle.color = '#00ff80'; buttonStyle.border = '1px solid #00ff80';
     } else {
       const totalCost = mintQuantity * mintPriceSui;
-      buttonText = isProcessingTx ? '⚡ PROCESSING...' : `⚡ DEPLOY ${mintQuantity} CONSTRUCT(S) [ ${totalCost.toFixed(2)} SUI ]`; buttonDisabled = isProcessingTx; buttonStyle.background = 'rgba(6, 182, 212, 0.1)'; buttonStyle.color = '#06B6D4'; buttonStyle.border = '1px solid #06B6D4';
+      buttonText = isProcessingTx ? '⚡ PROCESSING...' : `⚡ DEPLOY ${mintQuantity} CONSTRUCT(S) [ ${totalCost.toFixed(2).replace(/\.00$/, '')} SUI ]`; buttonDisabled = isProcessingTx; buttonStyle.background = 'rgba(6, 182, 212, 0.1)'; buttonStyle.color = '#06B6D4'; buttonStyle.border = '1px solid #06B6D4';
     }
   }
 
@@ -1317,22 +1509,42 @@ function TerminalUI() {
       </div>
 
       <div style={{ padding: '1.5rem', position: 'relative', zIndex: 1, maxWidth: '1200px', margin: '0 auto' }}>
-        <header style={{ display: 'flex', flexDirection: 'column', gap: '1rem', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '1rem' }}>
-          <div style={{ width: '100%', display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-              <h1 style={{ margin: 0, fontSize: '1.2rem', letterSpacing: '2px', color: '#ffffff' }}>NUMB_POLYS // TERMINAL</h1>
-              <a href="https://www.numbpolys.xyz/" style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.15)', color: '#E5E5E5', padding: '6px 12px', borderRadius: '2px', fontSize: '10px', letterSpacing: '0.1em', textTransform: 'uppercase', textDecoration: 'none', backdropFilter: 'blur(8px)', transition: 'all 0.3s ease' }} onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#E5E5E5'; e.currentTarget.style.color = '#0D0D11'; }} onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.03)'; e.currentTarget.style.color = '#E5E5E5'; }}>← Back to Main</a>
-            </div>
-            <div style={{ display: 'flex', gap: '1rem' }}>
-              <button onClick={() => !isProcessingTx && setActiveView('GENERATOR')} style={{ background: activeView === 'GENERATOR' ? '#E5E5E5' : 'rgba(255,255,255,0.03)', color: activeView === 'GENERATOR' ? '#0D0D11' : '#E5E5E5', padding: '6px 16px', border: '1px solid rgba(255,255,255,0.15)', cursor: isProcessingTx ? 'not-allowed' : 'pointer', fontFamily: 'inherit', fontWeight: '500', borderRadius: '2px', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>[ MINT ]</button>
-              <button onClick={() => !isProcessingTx && setActiveView('ARMORY')} style={{ background: activeView === 'ARMORY' ? '#E5E5E5' : 'rgba(255,255,255,0.03)', color: activeView === 'ARMORY' ? '#0D0D11' : '#E5E5E5', padding: '6px 16px', border: '1px solid rgba(255,255,255,0.15)', cursor: isProcessingTx ? 'not-allowed' : 'pointer', fontFamily: 'inherit', fontWeight: '500', borderRadius: '2px', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>[ THE ARMORY ]</button>
-              {account?.address === '0xdb67bfb984df37d73755da48c166689e7d584b17cf6c23a680cb05d90f9653fb' && (
-                <button onClick={() => !isProcessingTx && setActiveView('ADMIN')} style={{ background: activeView === 'ADMIN' ? '#E5E5E5' : 'rgba(255,255,255,0.03)', color: activeView === 'ADMIN' ? '#0D0D11' : '#E5E5E5', padding: '6px 16px', border: '1px solid rgba(255,255,255,0.15)', cursor: isProcessingTx ? 'not-allowed' : 'pointer', fontFamily: 'inherit', fontWeight: '500', borderRadius: '2px', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>[ OVERSEER ]</button>
-              )}
-            </div>
-            <div className="neon-wallet-override">
-              <ConnectButton />
-            </div>
+        {/* CLEAN MOBILE-FRIENDLY HEADER */}
+        <header style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', marginBottom: '1.5rem', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '1rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+            <h1 
+              onClick={() => navigateToView('HOME')} 
+              style={{ margin: 0, fontSize: '1.2rem', letterSpacing: '2px', color: '#ffffff', cursor: 'pointer' }}
+            >
+              NUMB_POLYS // TERMINAL
+            </h1>
+            {activeView !== 'HOME' && (
+              <button
+                onClick={() => navigateToView('HOME')}
+                disabled={isProcessingTx}
+                style={{
+                  background: 'rgba(6, 182, 212, 0.1)',
+                  border: '1px solid rgba(6, 182, 212, 0.4)',
+                  color: '#06B6D4',
+                  padding: '6px 14px',
+                  borderRadius: '2px',
+                  fontSize: '10px',
+                  fontWeight: 'bold',
+                  letterSpacing: '0.1em',
+                  textTransform: 'uppercase',
+                  cursor: isProcessingTx ? 'not-allowed' : 'pointer',
+                  fontFamily: 'inherit',
+                  transition: 'all 0.2s ease'
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#06B6D4'; e.currentTarget.style.color = '#0D0D11'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'rgba(6, 182, 212, 0.1)'; e.currentTarget.style.color = '#06B6D4'; }}
+              >
+                [ ← RETURN TO TERMINAL DIRECTORY ]
+              </button>
+            )}
+          </div>
+          <div className="neon-wallet-override">
+            <ConnectButton />
           </div>
         </header>
 
@@ -1342,7 +1554,52 @@ function TerminalUI() {
           </div>
         )}
 
-        {activeView === 'GENERATOR' ? (
+        {activeView === 'HOME' ? (
+          <HomePortal 
+            onNavigate={(view) => navigateToView(view)} 
+            isAdmin={account?.address === ADMIN_WALLET} 
+          />
+        ) : activeView === 'WHITELIST' ? (
+          <WhitelistPortal
+            accountAddress={account?.address}
+            currentPhase={currentPhase}
+            phaseStatsList={phaseStatsList}
+            phaseWhitelists={phaseWhitelists}
+            portalSettings={portalSettings}
+            totalRemainingConstructs={totalRemainingConstructs}
+            totalMintedGlobal={totalMintedGlobal}
+            displayOperativesCount={displayOperatives.length}
+          />
+        ) : activeView === 'TELEPORTER' || activeView === 'MARKETPLACE' ? (
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '55vh', width: '100%' }}>
+            <div className="hud-frame" style={{ maxWidth: '540px', width: '100%', padding: '3rem 2rem', textAlign: 'center', background: 'rgba(0,0,0,0.65)' }}>
+              <div className="hud-corner-bottom" />
+              <div style={{ fontSize: '10px', color: '#ff3333', letterSpacing: '0.2em', fontWeight: 'bold', marginBottom: '0.75rem' }}>
+                // CLASSIFIED PROTOCOL MODULE //
+              </div>
+              <h2 style={{ margin: '0 0 1rem 0', color: '#06B6D4', fontSize: '1.35rem', letterSpacing: '0.15em', textTransform: 'uppercase' }}>
+                {activeView === 'TELEPORTER' ? 'THE TELEPORTER // STANDBY' : 'SYNDICATE MARKETPLACE // STANDBY'}
+              </h2>
+              <p style={{ color: '#A3A3A3', fontSize: '0.85rem', lineHeight: '1.6', margin: '0 0 1.75rem 0' }}>
+                This terminal module is encrypted and scheduled for activation immediately following the completion of the 1,111 Construct Genesis Deployment.
+              </p>
+              <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+                <button
+                  onClick={() => navigateToView('WHITELIST')}
+                  style={{ background: 'rgba(0,255,128,0.12)', color: '#00ff80', border: '1px solid #00ff80', padding: '10px 18px', fontFamily: 'inherit', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', letterSpacing: '0.1em' }}
+                >
+                  [ CHECK WHITELIST & SCHEDULE ]
+                </button>
+                <button
+                  onClick={() => navigateToView('HOME')}
+                  style={{ background: 'rgba(6,182,212,0.12)', color: '#06B6D4', border: '1px solid #06B6D4', padding: '10px 18px', fontFamily: 'inherit', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', letterSpacing: '0.1em' }}
+                >
+                  [ ← RETURN TO TERMINAL DIRECTORY ]
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : activeView === 'GENERATOR' ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '3.5rem', width: '100%', alignItems: 'center', paddingBottom: '4rem' }}>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2.5rem', justifyContent: 'center', width: '100%', maxWidth: '1050px' }}>
               <div className="hud-frame" style={{ width: '100%', maxWidth: '400px', display: 'flex', justifyContent: 'center', borderRadius: '2px', background: 'rgba(0,0,0,0.5)' }}>
@@ -1360,17 +1617,35 @@ function TerminalUI() {
 
                 <div style={{ background: isFreeMintActive ? 'rgba(0, 255, 128, 0.05)' : 'rgba(6,182,212,0.05)', border: `1px solid ${isFreeMintActive ? '#00ff80' : '#06B6D4'}`, padding: '16px', borderRadius: '2px', textAlign: 'center', position: 'relative' }}>
                   <div style={{ fontSize: '10px', color: isFreeMintActive ? '#00ff80' : '#06B6D4', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '8px', fontWeight: 'bold' }}>
-                    // ACTIVE DEPLOYMENT PHASE: {activeBatch.phase.toString().padStart(2, '0')} {isFreeMintActive ? '— [ FREE MINT // 1 MAX PER WALLET ]' : `— [ ${mintPriceSui} SUI ]`}
+                    {currentPhase === 0
+                      ? '// DEPLOYMENT STATUS: PAUSED BY OVERSEER'
+                      : `// ACTIVE PHASE: 0${activeBatch.phase} — [ ${isFreeMintActive ? 'FREE MINT' : `${mintPriceSui} SUI`} // ${isWhitelistPhase ? 'WHITELIST GATED' : 'PUBLIC BATCH'} ]`}
                   </div>
                   <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#E5E5E5', margin: '4px 0', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
-                    {activeBatch.name}
+                    {currentPhase === 0 ? 'TERMINAL STANDBY' : activeBatch.name}
                   </div>
                   <div style={{ fontSize: '11px', color: '#A3A3A3', marginTop: '8px', lineHeight: '1.5' }}>
-                    {activeBatch.lore}
+                    {currentPhase === 0 ? 'Awaiting Overseer phase activation signal.' : activeBatch.lore}
                   </div>
+
+                  {/* 1. CURRENT PHASE / BATCH COUNTDOWN */}
                   {currentPhase > 0 && (
-                    <div style={{ fontSize: '11px', color: remainingInBatch > 0 ? '#ff3333' : '#666', marginTop: '14px', fontWeight: 'bold', letterSpacing: '0.1em' }}>
-                      // {remainingInBatch} CONSTRUCTS REMAINING IN BATCH //
+                    <div style={{ fontSize: '11px', color: remainingInCurrentPhase > 0 ? '#06B6D4' : '#ff3333', marginTop: '14px', fontWeight: 'bold', letterSpacing: '0.1em' }}>
+                      // {remainingInCurrentPhase} / {currentPhaseAllocation} CONSTRUCTS REMAINING IN PHASE 0{currentPhase} //
+                    </div>
+                  )}
+
+                  {/* 2. GLOBAL 1,111 COLLECTION SUPPLY COUNTDOWN */}
+                  <div style={{ fontSize: '11px', color: totalRemainingConstructs > 0 ? '#ff3333' : '#666', marginTop: '6px', fontWeight: 'bold', letterSpacing: '0.1em' }}>
+                    // {totalRemainingConstructs} / 1,111 CONSTRUCTS REMAINING ({totalMintedGlobal} DEPLOYED) //
+                  </div>
+
+                  {/* 3. PERSONAL WHITELIST WALLET URGENCY */}
+                  {currentPhase > 0 && account && isWhitelistPhase && (
+                    <div style={{ fontSize: '10px', color: isWalletWhitelisted && walletRemainingAllowance > 0 ? '#00ff80' : '#ff3333', marginTop: '8px', fontWeight: 'bold', letterSpacing: '0.1em' }}>
+                      {isWalletWhitelisted
+                        ? `// YOUR WALLET ALLOCATION: ${walletRemainingAllowance} OF ${walletMaxAllowance} MINT(S) REMAINING //`
+                        : '// NOT ELIGIBLE FOR THIS WHITELIST PHASE //'}
                     </div>
                   )}
                 </div>
@@ -1379,17 +1654,22 @@ function TerminalUI() {
                   {account && currentPhase !== 0 && (
                     <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                       <div style={{ color: isFreeMintActive ? '#00ff80' : '#E5E5E5', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
-                        {isFreeMintActive ? '// FREE MINT ALLOCATION: STRICTLY 1 CONSTRUCT PER WALLET' : '// SELECT DEPLOYMENT QUANTITY'}
+                        {isWhitelistPhase
+                          ? `// SELECT DEPLOYMENT QUANTITY (MAX ${walletRemainingAllowance} ALLOWED FOR YOUR WALLET)`
+                          : `// SELECT DEPLOYMENT QUANTITY (${remainingInCurrentPhase} LEFT IN BATCH)`}
                       </div>
                       <div style={{ display: 'flex', gap: '0.5rem' }}>
                         {[1, 2, 3, 4, 5].map(num => {
-                          const isSelectable = isFreeMintActive ? (num === 1 && !hasAlreadyClaimedFreeMint && remainingInBatch >= 1) : (num <= remainingInBatch);
+                          const maxAllowed = isWhitelistPhase
+                            ? walletRemainingAllowance
+                            : Math.min(remainingInCurrentPhase, totalRemainingSupply);
+                          const isSelectable = isWalletWhitelisted && num <= maxAllowed && maxAllowed > 0;
                           return (
                             <button 
                               key={num}
                               disabled={!isSelectable || isProcessingTx}
-                              onClick={() => setMintQuantity(isFreeMintActive ? 1 : num)}
-                              style={{ flex: 1, padding: '10px', background: mintQuantity === num ? '#E5E5E5' : 'rgba(255,255,255,0.03)', color: mintQuantity === num ? '#0D0D11' : (isSelectable ? '#E5E5E5' : '#444'), border: mintQuantity === num ? '1px solid #E5E5E5' : '1px solid rgba(255,255,255,0.1)', opacity: (!isSelectable && isFreeMintActive && num > 1) ? 0.3 : 1, cursor: (!isSelectable || isProcessingTx) ? 'not-allowed' : 'pointer', fontFamily: 'inherit', fontWeight: 'bold', borderRadius: '2px', transition: 'all 0.2s ease' }}
+                              onClick={() => setMintQuantity(num)}
+                              style={{ flex: 1, padding: '10px', background: mintQuantity === num ? '#E5E5E5' : 'rgba(255,255,255,0.03)', color: mintQuantity === num ? '#0D0D11' : (isSelectable ? '#E5E5E5' : '#444'), border: mintQuantity === num ? '1px solid #E5E5E5' : '1px solid rgba(255,255,255,0.1)', opacity: !isSelectable ? 0.35 : 1, cursor: (!isSelectable || isProcessingTx) ? 'not-allowed' : 'pointer', fontFamily: 'inherit', fontWeight: 'bold', borderRadius: '2px', transition: 'all 0.2s ease' }}
                             >
                               {num}
                             </button>
@@ -1401,9 +1681,14 @@ function TerminalUI() {
                   <button onClick={mintOperative} disabled={buttonDisabled} style={buttonStyle}>{buttonText}</button>
                 </div>
 
-                <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.15)', padding: '10px 14px', borderRadius: '2px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '11px', color: '#888' }}>Need deep documentation, mechanics, or founder roadmap?</span>
-                  <a href="https://www.numbpolys.xyz/" style={{ color: '#06B6D4', fontSize: '11px', textDecoration: 'none', fontWeight: 'bold', letterSpacing: '0.05em' }}>[ EXPLORE ON MAIN → ]</a>
+                <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.15)', padding: '10px 14px', borderRadius: '2px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                  <span style={{ fontSize: '11px', color: '#888' }}>Want to check your Whitelist status, phase schedule, or apply?</span>
+                  <button
+                    onClick={() => navigateToView('WHITELIST')}
+                    style={{ background: 'transparent', border: 'none', color: '#00ff80', fontSize: '11px', fontWeight: 'bold', letterSpacing: '0.05em', cursor: 'pointer', fontFamily: 'inherit', padding: 0 }}
+                  >
+                    [ OPEN WHITELIST & SCHEDULE → ]
+                  </button>
                 </div>
               </div>
             </div>
@@ -1708,7 +1993,7 @@ function TerminalUI() {
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', width: '100%', alignItems: 'center' }}>
-            {account?.address === '0xdb67bfb984df37d73755da48c166689e7d584b17cf6c23a680cb05d90f9653fb' && (
+            {account?.address === ADMIN_WALLET && (
               <div style={{ width: '100%', maxWidth: '800px', background: 'rgba(255,255,255,0.02)', padding: '1.5rem', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '2px' }}>
                 <h3 style={{ margin: '0 0 1rem 0', color: '#06B6D4', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.1em', fontSize: '0.85rem' }}>// GLOBAL CONTRACT IDENTITY, RARITY & ON-CHAIN DISPLAY</h3>
                 <p style={{ fontSize: '0.75rem', color: '#A3A3A3', marginBottom: '1rem', lineHeight: '1.5' }}>

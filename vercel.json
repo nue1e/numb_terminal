@@ -3,6 +3,10 @@
     {
       "source": "/walrus-upload/:match*",
       "destination": "https://publisher.walrus-testnet.walrus.space/:match*"
+    },
+    {
+      "source": "/((?!assets/|.*\\..*).*)",
+      "destination": "/index.html"
     }
   ]
 }
